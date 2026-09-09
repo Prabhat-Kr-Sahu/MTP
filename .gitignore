@@ -1,7 +1,28 @@
-.claude/
+# Python
 __pycache__/
 *.pyc
 *.pyo
 .pytest_cache/
 .venv/
 venv/
+
+# Data (large files, don't commit)
+ling/data/
+*.csv
+
+# Model checkpoints (large binaries)
+ling/checkpoints/*.pt
+
+# Logs & results
+ling/logs/
+ling/results/
+
+# IDE
+.vscode/
+.idea/
+.gemini/
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
