@@ -650,9 +650,12 @@ def collate_fn(batch):
 
     B = len(states_list)
     states_padded = torch.zeros(B, T_h, max_N, F)
+    mask = torch.zeros(B, max_N, dtype=torch.bool)
+    
     for i, s in enumerate(states_list):
         n = s.shape[1]
         states_padded[i, :, :n, :] = s
+        mask[i, :n] = True
 
     # gt_goals: (N_i-1, 4) — pad similarly
     max_Nv = max_N - 1
@@ -661,4 +664,4 @@ def collate_fn(batch):
         n = g.shape[0]
         gt_goals_padded[i, :n, :] = g
 
-    return states_padded, gt_positions, gt_goals_padded
+    return states_padded, gt_positions, gt_goals_padded, mask

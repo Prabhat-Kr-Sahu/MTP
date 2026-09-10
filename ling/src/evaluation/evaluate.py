@@ -83,11 +83,17 @@ def evaluate_trajectory(model, dataloader, device) -> Dict[str, float]:
 
     with torch.no_grad():
         for batch in dataloader:
-            states, gt_positions, _ = batch
+            if len(batch) == 4:
+                states, gt_positions, _, mask = batch
+                mask = mask.to(device)
+            else:
+                states, gt_positions, _ = batch
+                mask = None
+            
             states = states.to(device)
             gt_positions = gt_positions.to(device)
 
-            traj_dist, _, _ = model(states)
+            traj_dist, _, _ = model(states, mask)
             metrics = compute_rmse(traj_dist, gt_positions)
             all_metrics.append(metrics)
 
