@@ -11,7 +11,7 @@ from src.config import (
     WEIGHT_DECAY, CHECKPOINT_DIR, LOG_DIR, SEED,
 )
 from src.losses.loss import risk_scaled_loss, basic_loss, gaussian_nll
-from src.data.generate_synthetic import generate_synthetic_trajectory, create_sample
+from src.data.loader import NGSIMDataLoader, create_dataloader
 
 
 def train_one_epoch(model, optimizer, dataloader, device, use_risk_loss=True, beta=0.0):
@@ -23,11 +23,16 @@ def train_one_epoch(model, optimizer, dataloader, device, use_risk_loss=True, be
     num_batches = 0
 
     for batch_idx, batch in enumerate(dataloader):
-        states, gt_positions, gt_goals = batch
+        if len(batch) == 4:
+            states, gt_positions, gt_goals, mask = batch
+            mask = mask.to(device)
+        else:
+            states, gt_positions, gt_goals = batch
+            mask = None
+
         states = states.to(device)
         gt_positions = gt_positions.to(device)
         gt_goals = gt_goals.to(device)
-        mask = None  # synthetic data has no padding
 
         # Forward pass
         traj_dist, pred_goals, risk_field = model(states, mask)
@@ -64,12 +69,18 @@ def validate(model, dataloader, device, use_risk_loss=True, beta=0.0):
 
     with torch.no_grad():
         for batch in dataloader:
-            states, gt_positions, gt_goals = batch
+            if len(batch) == 4:
+                states, gt_positions, gt_goals, mask = batch
+                mask = mask.to(device)
+            else:
+                states, gt_positions, gt_goals = batch
+                mask = None
+
             states = states.to(device)
             gt_positions = gt_positions.to(device)
             gt_goals = gt_goals.to(device)
 
-            traj_dist, pred_goals, risk_field = model(states)
+            traj_dist, pred_goals, risk_field = model(states, mask)
 
             # Compute loss
             if use_risk_loss:
@@ -95,6 +106,7 @@ def train(
     num_epochs: int = NUM_EPOCHS,
     use_risk_loss: bool = True,
     beta: float = 0.0,
+    debug: bool = False,
 ):
     """Full training loop."""
     os.makedirs(CHECKPOINT_DIR, exist_ok=True)
@@ -110,23 +122,26 @@ def train(
     training_log = []
 
     print(f"Training STRAP on {DEVICE}")
-    print(f"Epochs: {num_epochs}, Risk Loss: {use_risk_loss}, Beta: {beta}")
+    print(f"Epochs: {num_epochs}, Risk Loss: {use_risk_loss}, Beta: {beta}, Debug: {debug}")
+
+    # Load dataset
+    max_rows = 50000 if debug else None
+    loader = NGSIMDataLoader(location='us-101', max_rows=max_rows)
+    loader.fetch()
+    train_samples, val_samples, _ = loader.get_splits(seed=SEED)
+
+    train_dl = create_dataloader(train_samples, batch_size=BATCH_SIZE, shuffle=True)
+    val_dl = create_dataloader(val_samples, batch_size=BATCH_SIZE, shuffle=False)
+
+    print(f"Number of training batches: {len(train_dl)}")
+    print(f"Number of validation batches: {len(val_dl)}")
 
     for epoch in range(num_epochs):
-        # Generate synthetic training data
-        train_scene = generate_synthetic_trajectory(num_vehicles=20, seed=SEED + epoch)
-        val_scene = generate_synthetic_trajectory(num_vehicles=10, seed=SEED + epoch + 1000)
-
-        # Create simple batch from scenes
-        states, gt_pos, gt_goals, mask = create_sample(train_scene, T_h=30, T_f=50)
-        val_states, val_gt_pos, val_gt_goals, val_mask = create_sample(val_scene, T_h=30, T_f=50)
-
-        # Simple data loader (batch of 1 for synthetic)
         train_loss, gl, tl = train_one_epoch(
-            model, optimizer, [(states, gt_pos, gt_goals)], DEVICE, use_risk_loss, beta
+            model, optimizer, train_dl, DEVICE, use_risk_loss, beta
         )
         val_loss, val_rmse = validate(
-            model, [(val_states, val_gt_pos, val_gt_goals)], DEVICE, use_risk_loss, beta
+            model, val_dl, DEVICE, use_risk_loss, beta
         )
 
         scheduler.step()

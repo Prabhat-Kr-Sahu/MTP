@@ -13,7 +13,7 @@ from src.config import DEVICE, CHECKPOINT_DIR, NUM_EPOCHS, LEARNING_RATE, DROPOU
 from src.models.strap import STRAP
 from src.training.train import train
 from src.evaluation.evaluate import evaluate_trajectory, print_metrics
-from src.data.generate_synthetic import generate_synthetic_trajectory, create_sample
+from src.data.loader import NGSIMDataLoader, create_dataloader
 
 
 def main():
@@ -60,6 +60,7 @@ def main():
             num_epochs=num_epochs,
             use_risk_loss=use_risk_loss,
             beta=beta,
+            debug=args.debug,
         )
 
         # Print final metrics
@@ -71,19 +72,23 @@ def main():
         model.load_state_dict(torch.load(f"{CHECKPOINT_DIR}/best_model.pt", map_location=DEVICE, weights_only=True))
         model.eval()
 
-        # Quick sanity check with synthetic data
-        test_scene = generate_synthetic_trajectory(num_vehicles=5, seed=999)
-        states, gt_pos, _, _ = create_sample(test_scene, T_h=30, T_f=50)
-        states = states.to(DEVICE)
-        with torch.no_grad():
-            traj_dist, goals, risk = model(states)
-        print(f"\nSanity check output shapes:")
-        print(f"  Traj dist: {traj_dist.shape}  (expected: 1x50x5)")
-        print(f"  Goals: {goals.shape}  (expected: 1x{states.shape[2]-1}x4)")
-        print(f"  Risk field: {risk.shape}  (expected: 1x100x2)")
-        print(f"  Trajectory means: {traj_dist[0, 0, :2].detach().cpu().numpy()}")
-        print(f"  Sigma: {traj_dist[0, 0, 2:4].detach().cpu().numpy()}")
-        print(f"  Rho: {traj_dist[0, 0, 4].detach().cpu().numpy()}")
+        # Quick sanity check with real data subset
+        loader = NGSIMDataLoader(location='us-101', max_rows=50000)
+        loader.fetch()
+        samples = loader.build_samples(max_samples=1)
+        if len(samples) > 0:
+            states, gt_pos, gt_goals, mask = samples[0]
+            states = states.to(DEVICE)
+            mask = mask.to(DEVICE)
+            with torch.no_grad():
+                traj_dist, goals, risk = model(states, mask)
+            print(f"\nSanity check output shapes:")
+            print(f"  Traj dist: {traj_dist.shape}  (expected: 1x50x5)")
+            print(f"  Goals: {goals.shape}  (expected: 1x{states.shape[2]-1}x4)")
+            print(f"  Risk field: {risk.shape}  (expected: 1x100x2)")
+            print(f"  Trajectory means: {traj_dist[0, 0, :2].detach().cpu().numpy()}")
+            print(f"  Sigma: {traj_dist[0, 0, 2:4].detach().cpu().numpy()}")
+            print(f"  Rho: {traj_dist[0, 0, 4].detach().cpu().numpy()}")
 
     elif args.mode == "eval":
         checkpoint_path = f"{CHECKPOINT_DIR}/best_model.pt"
@@ -95,15 +100,13 @@ def main():
             return
 
         model.eval()
-        test_scene = generate_synthetic_trajectory(num_vehicles=10, seed=42)
-        states, gt_pos, gt_goals, _ = create_sample(test_scene, T_h=30, T_f=50)
-        states = states.to(DEVICE)
-        gt_pos = gt_pos.to(DEVICE)
-        with torch.no_grad():
-            traj_dist, _, _ = model(states)
+        loader = NGSIMDataLoader(location='us-101', max_rows=50000)
+        loader.fetch()
+        _, _, test_samples = loader.get_splits()
+        test_dl = create_dataloader(test_samples, batch_size=32, shuffle=False)
 
-        metrics = evaluate_trajectory(model, [(states, gt_pos, gt_goals)], DEVICE)
-        print_metrics(metrics, label="Synthetic Test")
+        metrics = evaluate_trajectory(model, test_dl, DEVICE)
+        print_metrics(metrics, label="NGSIM Test Split")
 
     elif args.mode == "predict":
         checkpoint_path = f"{CHECKPOINT_DIR}/best_model.pt"
@@ -115,13 +118,16 @@ def main():
         model.eval()
 
         # Load a scene and predict
-        test_scene = generate_synthetic_trajectory(num_vehicles=10, seed=42)
-        states, _, _, mask = create_sample(test_scene, T_h=30, T_f=50)
-        states = states.to(DEVICE)
-        mask = mask.to(DEVICE)
+        loader = NGSIMDataLoader(location='us-101', max_rows=50000)
+        loader.fetch()
+        samples = loader.build_samples(max_samples=1)
+        if len(samples) > 0:
+            states, gt_pos, gt_goals, mask = samples[0]
+            states = states.to(DEVICE)
+            mask = mask.to(DEVICE)
 
-        with torch.no_grad():
-            traj_dist, goals, risk = model(states, mask)
+            with torch.no_grad():
+                traj_dist, goals, risk = model(states, mask)
 
         print("Prediction complete!")
         print(f"  Predicted future positions shape: {traj_dist.shape}")
