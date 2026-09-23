@@ -1,4 +1,6 @@
 """Training pipeline for STRAP."""
+from src.logger import get_logger
+logger = get_logger()
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -9,9 +11,14 @@ import os
 from src.config import (
     DEVICE, BATCH_SIZE, LEARNING_RATE, NUM_EPOCHS, LR_DECAY,
     WEIGHT_DECAY, CHECKPOINT_DIR, LOG_DIR, SEED,
+    NORMALIZATION_FILE, INTENTIONS_FILE,
 )
 from src.losses.loss import risk_scaled_loss, basic_loss, gaussian_nll
 from src.data.loader import NGSIMDataLoader, create_dataloader
+from src.data.normalization import (
+    compute_normalization_stats, apply_normalization, save_stats, load_stats,
+)
+from src.intentions.kmeans import build_codebook_from_samples, save_codebook
 
 
 def train_one_epoch(model, optimizer, dataloader, device, use_risk_loss=True, beta=0.0):
@@ -121,8 +128,8 @@ def train(
     best_val_loss = float("inf")
     training_log = []
 
-    print(f"Training STRAP on {DEVICE}")
-    print(f"Epochs: {num_epochs}, Risk Loss: {use_risk_loss}, Beta: {beta}, Debug: {debug}")
+    logger.info(f"Training STRAP on {DEVICE}")
+    logger.info(f"Epochs: {num_epochs}, Risk Loss: {use_risk_loss}, Beta: {beta}, Debug: {debug}")
 
     # Load dataset
     max_rows = 50000 if debug else None
@@ -130,11 +137,41 @@ def train(
     loader.fetch()
     train_samples, val_samples, _ = loader.get_splits(seed=SEED)
 
+    # --- Normalization: compute from TRAINING data only ---
+    logger.info("[Train] Computing normalization statistics from training data...")
+    train_states_list = [s[0] for s in train_samples]  # each is (1, T_h, N, F)
+    norm_stats = compute_normalization_stats(train_states_list)
+    save_stats(norm_stats, f"{CHECKPOINT_DIR}/{NORMALIZATION_FILE}")
+    logger.info(f"[Train] Saved normalization stats to {CHECKPOINT_DIR}/{NORMALIZATION_FILE}")
+
+    # Apply normalization to train and val samples
+    train_samples = [
+        (apply_normalization(s, norm_stats), gt, g, m, vids)
+        for s, gt, g, m, vids in train_samples
+    ]
+    val_samples = [
+        (apply_normalization(s, norm_stats), gt, g, m, vids)
+        for s, gt, g, m, vids in val_samples
+    ]
+
+    # --- K-means intentions: fit on TRAINING endpoints only ---
+    logger.info("[Train] Fitting k-means intention codebook on training data...")
+    # build_codebook_from_samples expects (states, gt_pos, gt_goals) tuples
+    codebook_input = [(s, gt, g) for s, gt, g, m, vids in train_samples]
+    intention_centers = build_codebook_from_samples(codebook_input, k=100, seed=SEED)
+    save_codebook(intention_centers, f"{CHECKPOINT_DIR}/{INTENTIONS_FILE}")
+    logger.info(f"[Train] Saved intention codebook ({intention_centers.shape}) to "
+          f"{CHECKPOINT_DIR}/{INTENTIONS_FILE}")
+
+    # Load codebook into model's risk decoder
+    model.risk_decoder.set_intentions(torch.from_numpy(intention_centers))
+    logger.info("[Train] Loaded k-means intentions into model")
+
     train_dl = create_dataloader(train_samples, batch_size=BATCH_SIZE, shuffle=True)
     val_dl = create_dataloader(val_samples, batch_size=BATCH_SIZE, shuffle=False)
 
-    print(f"Number of training batches: {len(train_dl)}")
-    print(f"Number of validation batches: {len(val_dl)}")
+    logger.info(f"Number of training batches: {len(train_dl)}")
+    logger.info(f"Number of validation batches: {len(val_dl)}")
 
     for epoch in range(num_epochs):
         train_loss, gl, tl = train_one_epoch(
@@ -157,7 +194,7 @@ def train(
         }
         training_log.append(log_entry)
 
-        print(f"Epoch {epoch+1}/{num_epochs}: "
+        logger.info(f"Epoch {epoch+1}/{num_epochs}: "
               f"Train Loss={train_loss:.4f} (goal={gl:.4f}, traj={tl:.4f}), "
               f"Val Loss={val_loss:.4f}, Val RMSE={val_rmse:.4f}")
 
@@ -165,7 +202,7 @@ def train(
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             torch.save(model.state_dict(), f"{CHECKPOINT_DIR}/best_model.pt")
-            print(f"  -> Saved best checkpoint (val_loss={val_loss:.4f})")
+            logger.info(f"  -> Saved best checkpoint (val_loss={val_loss:.4f})")
 
     # Save training log
     with open(f"{LOG_DIR}/training_log.json", "w") as f:
@@ -174,5 +211,6 @@ def train(
     # Save final model
     torch.save(model.state_dict(), f"{CHECKPOINT_DIR}/final_model.pt")
 
-    print("Training complete!")
+    logger.info("Training complete!")
     return training_log
+

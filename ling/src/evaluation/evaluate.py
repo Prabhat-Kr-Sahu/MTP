@@ -1,4 +1,6 @@
 """Evaluation metrics for STRAP trajectory prediction."""
+from src.logger import get_logger
+logger = get_logger()
 import torch
 import numpy as np
 from typing import Dict, List
@@ -107,9 +109,10 @@ def evaluate_trajectory(model, dataloader, device) -> Dict[str, float]:
 
 def print_metrics(metrics: Dict[str, float], label: str = ""):
     """Pretty print evaluation metrics."""
-    print(f"\n{'='*50}")
-    print(f"Metrics {label}")
-    print(f"{'='*50}")
+    logger.info(f"\n{'='*50}")
+    logger.info(f"Metrics {label}")
+    logger.info(f"{'='*50}")
     for key, val in metrics.items():
-        print(f"  {key}: {val:.4f}")
-    print(f"{'='*50}\n")
+        logger.info(f"  {key}: {val:.4f}")
+    logger.info(f"{'='*50}\n")
+

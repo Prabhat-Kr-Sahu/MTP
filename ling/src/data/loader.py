@@ -9,6 +9,8 @@ STRAP-relevant   : us-101, i-80  (freeway datasets)
 Units in the raw API response are **feet / ft·s⁻¹ / ft·s⁻²**.
 This loader converts everything to **metres / m·s⁻¹ / m·s⁻²** on load.
 """
+from src.logger import get_logger
+logger = get_logger()
 
 import os
 import time
@@ -28,6 +30,13 @@ from typing import List, Optional, Tuple, Dict
 
 _API_BASE = "https://data.transportation.gov/resource/8ect-6jqj.json"
 _FT_TO_M = 0.3048  # 1 foot = 0.3048 metres
+
+# Risk-field parameters (from config, used in risk-aware neighbor selection)
+from src.config import GAMMA_X as _GAMMA_X
+from src.config import GAMMA_Y as _GAMMA_Y
+from src.config import ALPHA_X as _ALPHA_X
+from src.config import ALPHA_Y as _ALPHA_Y
+from src.config import RISK_THRESHOLD as _RISK_THRESHOLD
 
 # Columns to request from the API (skip arterial-only fields)
 _SELECT_COLS = [
@@ -126,14 +135,14 @@ def fetch_ngsim(
 
     # ---- Use cache if available ----
     if os.path.exists(cache_path) and not force_download:
-        print(f"[NGSIMLoader] Loading cached data from {cache_path}")
+        logger.info(f"[NGSIMLoader] Loading cached data from {cache_path}")
         df = pd.read_csv(cache_path)
         if max_rows is not None:
             df = df.head(max_rows)
         return df
 
     # ---- Paginated download ----
-    print(f"[NGSIMLoader] Downloading '{location}' data from SODA API …")
+    logger.info(f"[NGSIMLoader] Downloading '{location}' data from SODA API …")
     all_records: list = []
     offset = 0
     page_num = 0
@@ -155,7 +164,7 @@ def fetch_ngsim(
             if exc.code == 429:
                 # Rate-limited — back off and retry
                 wait = 10
-                print(f"  Rate-limited. Waiting {wait}s …")
+                logger.info(f"  Rate-limited. Waiting {wait}s …")
                 time.sleep(wait)
                 continue
             raise
@@ -165,7 +174,7 @@ def fetch_ngsim(
             break
 
         all_records.extend(page)
-        print(f"  Page {page_num}: fetched {len(page):,} rows "
+        logger.info(f"  Page {page_num}: fetched {len(page):,} rows "
               f"(total {len(all_records):,}) in {elapsed:.1f}s")
 
         if len(page) < fetch_limit:
@@ -183,7 +192,7 @@ def fetch_ngsim(
             f"Valid options: us-101, i-80, lankershim, peachtree."
         )
 
-    print(f"[NGSIMLoader] Downloaded {len(all_records):,} rows for '{location}'")
+    logger.info(f"[NGSIMLoader] Downloaded {len(all_records):,} rows for '{location}'")
 
     # ---- Build DataFrame ----
     df = pd.DataFrame(all_records)
@@ -210,7 +219,7 @@ def fetch_ngsim(
 
     # ---- Cache to disk ----
     df.to_csv(cache_path, index=False)
-    print(f"[NGSIMLoader] Cached to {cache_path}")
+    logger.info(f"[NGSIMLoader] Cached to {cache_path}")
 
     return df
 
@@ -391,7 +400,7 @@ class NGSIMDataLoader:
             int(vid) for vid, grp in vehicle_groups
             if len(grp) >= self.min_vehicle_frames
         ]
-        print(f"[NGSIMLoader] {len(eligible_vids)} vehicles with "
+        logger.info(f"[NGSIMLoader] {len(eligible_vids)} vehicles with "
               f"≥{self.min_vehicle_frames} frames")
 
         for target_vid in eligible_vids:
@@ -434,21 +443,41 @@ class NGSIMDataLoader:
                 tx = float(target_row["local_x"].iloc[0])
                 ty = float(target_row["local_y"].iloc[0])
 
-                # Rank neighbours by Euclidean distance to target
+                # Risk-aware neighbor selection (STRAP paper §12)
+                # Compute S-field risk for each candidate relative to target
                 neighbor_candidates = [v for v in fully_present if v != target_vid]
                 if not neighbor_candidates:
                     continue
 
-                dists = {}
+                candidate_risks = {}
                 for nv in neighbor_candidates:
                     nr = mid_frame[mid_frame["vehicle_id"] == nv]
                     if nr.empty:
                         continue
                     nx = float(nr["local_x"].iloc[0])
                     ny = float(nr["local_y"].iloc[0])
-                    dists[nv] = np.sqrt((nx - tx) ** 2 + (ny - ty) ** 2)
+                    dx = nx - tx
+                    dy = ny - ty
+                    # S-field: exp(-(|dx/γx|^αx + |dy/γy|^αy))
+                    s_risk = float(np.exp(
+                        -(abs(dx / _GAMMA_X) ** _ALPHA_X +
+                          abs(dy / _GAMMA_Y) ** _ALPHA_Y)
+                    ))
+                    candidate_risks[nv] = s_risk
 
-                sorted_neighbors = sorted(dists, key=dists.get)
+                # Keep vehicles with risk > threshold, rank by risk (desc)
+                interacting = {v: r for v, r in candidate_risks.items()
+                               if r > _RISK_THRESHOLD}
+                if interacting:
+                    sorted_neighbors = sorted(interacting, key=interacting.get,
+                                              reverse=True)
+                else:
+                    # Fallback: take closest by distance if no one exceeds threshold
+                    sorted_neighbors = sorted(
+                        candidate_risks,
+                        key=lambda v: abs(candidate_risks[v]),
+                        reverse=True,
+                    )
                 selected = sorted_neighbors[: self.max_neighbors]
 
                 # Order: target first, then neighbours
@@ -491,7 +520,7 @@ class NGSIMDataLoader:
                 break
 
         self.scenes = scenes
-        print(f"[NGSIMLoader] Built {len(scenes)} scenes")
+        logger.info(f"[NGSIMLoader] Built {len(scenes)} scenes")
         return scenes
 
     # ------------------------------------------------------------------ #
@@ -534,7 +563,7 @@ class NGSIMDataLoader:
             if max_samples is not None and len(samples) >= max_samples:
                 break
 
-        print(f"[NGSIMLoader] Built {len(samples)} training samples")
+        logger.info(f"[NGSIMLoader] Built {len(samples)} training samples")
         return samples
 
     # ------------------------------------------------------------------ #
@@ -588,7 +617,7 @@ class NGSIMDataLoader:
         val = [samples[i] for i in val_idx]
         test = [samples[i] for i in test_idx]
 
-        print(f"[NGSIMLoader] Split: train={len(train)}, "
+        logger.info(f"[NGSIMLoader] Split: train={len(train)}, "
               f"val={len(val)}, test={len(test)}")
         return train, val, test
 
@@ -607,7 +636,7 @@ class TrafficDataset(torch.utils.data.Dataset):
         return len(self.samples)
 
     def __getitem__(self, idx):
-        states, gt_pos, gt_goals, mask = self.samples[idx]
+        states, gt_pos, gt_goals, mask, vehicle_ids = self.samples[idx]
         # Remove the batch dim that create_sample adds (DataLoader re-batches)
         return states.squeeze(0), gt_pos.squeeze(0), gt_goals.squeeze(0)
 
@@ -665,3 +694,4 @@ def collate_fn(batch):
         gt_goals_padded[i, :n, :] = g
 
     return states_padded, gt_positions, gt_goals_padded, mask
+

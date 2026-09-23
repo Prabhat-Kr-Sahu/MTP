@@ -1,6 +1,12 @@
 """Synthetic data generator for testing STRAP without NGSIM data."""
 import torch
 import numpy as np
+from src.risk.s_field import compute_s_field
+from src.risk.o_field import compute_o_field
+from src.config import (
+    GAMMA_X, GAMMA_Y, ALPHA_X, ALPHA_Y,
+    D_STAR, T_STAR, BETA_1, BETA_2,
+)
 
 
 def generate_synthetic_trajectory(
@@ -115,10 +121,33 @@ def create_sample(scene: dict, target_idx: int = 0, T_h: int = 30, T_f: int = 50
     # Stack: (T_h, N_v+1, F)
     states = torch.stack(states, dim=1)  # (T_h, N_v+1, F)
 
-    # Add risk features placeholder (will be computed by risk module)
-    # Append zeros for now; risk features computed in the model
-    risk_features = torch.zeros(T_h, num_vehicles, 2)  # S-field, O-field
-    states = torch.cat([states, risk_features], dim=-1)  # (T_h, N_v+1, 12)
+    # ------ Compute real S-field and O-field risk features ------
+    # S-field: spatial proximity risk at each timestep
+    rel_pos_t = torch.from_numpy(rel_pos).float()  # (T_h, N, 2)
+    delta_x = rel_pos_t[:, :, 0]  # (T_h, N)
+    delta_y = rel_pos_t[:, :, 1]  # (T_h, N)
+    s_risk = compute_s_field(delta_x, delta_y, GAMMA_X, GAMMA_Y, ALPHA_X, ALPHA_Y)  # (T_h, N)
+    s_risk[:, target_idx] = 0.0  # self-risk = 0
+
+    # O-field: future collision risk approximated via velocity-based TTC
+    vel_all = torch.from_numpy(all_hist[:, :, 2:4]).float()  # (T_h, N, 2)
+    target_vel = vel_all[:, target_idx:target_idx + 1, :]  # (T_h, 1, 2)
+    rel_vel = vel_all - target_vel  # (T_h, N, 2)
+    dist = torch.norm(rel_pos_t, dim=-1).clamp(min=1e-6)  # (T_h, N)
+    speed = torch.norm(rel_vel, dim=-1).clamp(min=1e-6)  # (T_h, N)
+    # Closing speed = projection of relative velocity onto relative position
+    closing = (rel_vel * rel_pos_t).sum(dim=-1) / dist  # (T_h, N)
+    # TTC: positive closing speed means approaching
+    ttc = torch.where(
+        closing > 0,
+        dist / closing.clamp(min=1e-6),
+        torch.full_like(dist, 1e6),
+    )
+    o_risk = compute_o_field(dist, ttc.abs().clamp(min=0.1), D_STAR, T_STAR, BETA_1, BETA_2)
+    o_risk[:, target_idx] = 0.0  # self-risk = 0
+
+    risk_features = torch.stack([s_risk, o_risk], dim=-1)  # (T_h, N, 2)
+    states = torch.cat([states, risk_features], dim=-1)  # (T_h, N_v+1, F+2)
 
     # Add batch dimension
     states = states.unsqueeze(0)  # (1, T_h, N_v+1, F)
@@ -143,5 +172,8 @@ def create_sample(scene: dict, target_idx: int = 0, T_h: int = 30, T_f: int = 50
 
     # Mask: (1, num_vehicles) — target + neighbors present in this sample
     mask = torch.ones(1, num_vehicles, dtype=torch.bool)
+    
+    # Keep track of vehicle IDs for logging
+    vehicle_ids = scene["vehicle_ids"]
 
-    return states, target_traj, neighbor_goals, mask
+    return states, target_traj, neighbor_goals, mask, vehicle_ids
