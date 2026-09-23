@@ -23,7 +23,7 @@ from src.intentions.kmeans import load_codebook
 
 def main():
     parser = argparse.ArgumentParser(description="STRAP Trajectory Prediction Pipeline")
-    parser.add_argument("--mode", type=str, default="train", choices=["train", "eval", "predict", "log_collisions"])
+    parser.add_argument("--mode", type=str, default="train", choices=["train", "eval", "predict", "log_collisions", "compare_metrics"])
     parser.add_argument("--debug", action="store_true", help="Use small dataset for debugging")
     parser.add_argument("--use_risk_loss", action="store_true", default=True, help="Use risk-scaled loss (STRAP-R)")
     parser.add_argument("--basic_loss", action="store_true", help="Use basic loss (STRAP-B)")
@@ -377,6 +377,147 @@ def main():
             f.write(f"F1 Score:   {metrics['f1']:.4f}\n")
         logger.info(f"Metrics saved to {metrics_log_path}")
 
+    elif args.mode == "compare_metrics":
+        checkpoint_path = f"{CHECKPOINT_DIR}/best_model.pt"
+        if not os.path.exists(checkpoint_path):
+            logger.info("No checkpoint found. Run training first.")
+            return
+
+        model.load_state_dict(torch.load(checkpoint_path, map_location=DEVICE, weights_only=True))
+        model.eval()
+
+        # Load normalization and intentions
+        norm_path = f"{CHECKPOINT_DIR}/{NORMALIZATION_FILE}"
+        intent_path = f"{CHECKPOINT_DIR}/{INTENTIONS_FILE}"
+        norm_stats = load_stats(norm_path) if os.path.exists(norm_path) else None
+        if os.path.exists(intent_path):
+            centers = load_codebook(intent_path)
+            model.risk_decoder.set_intentions(torch.from_numpy(centers))
+
+        from src.evaluation.risk_metrics import RiskMetricRegistry
+        from src.evaluation.collision import collision_metrics_from_labels
+        import numpy as np
+
+        max_rows = 50000 if args.debug else None
+        logger.info(f"Loading data (debug={args.debug})...")
+        loader = NGSIMDataLoader(location='us-101', max_rows=max_rows)
+        loader.fetch()
+        _, _, test_samples = loader.get_splits()
+
+        if not test_samples:
+            logger.info("No test samples available.")
+            return
+
+        test_scene_indices = loader._split_indices['test']
+        T_h = loader.history_frames
+        T_f = loader.future_frames
+
+        all_metric_names = RiskMetricRegistry.all_names()
+        logger.info(f"Comparing {len(all_metric_names)} risk metrics: {all_metric_names}")
+
+        # Pre-compute all predictions and GT labels
+        per_metric_pred = {name: [] for name in all_metric_names}
+        all_gt = []
+        gt_computed = False
+
+        for i, sample in enumerate(test_samples):
+            states, gt_pos, gt_goals, mask, vehicle_ids = sample
+
+            scene_idx = test_scene_indices[i]
+            scene = loader.scenes[scene_idx]
+            scene_frames = scene["frames"]
+            n_neighbors = scene_frames.shape[1] - 1
+
+            gt_target_future = torch.from_numpy(
+                scene_frames[T_h:T_h + T_f, 0, :2]
+            ).float().unsqueeze(0)
+            gt_neighbor_futures = torch.from_numpy(
+                scene_frames[T_h:T_h + T_f, 1:, :2]
+            ).float().unsqueeze(0)
+
+            if norm_stats:
+                states = apply_normalization(states, norm_stats)
+            states = states.to(DEVICE)
+            mask = mask.to(DEVICE)
+
+            with torch.no_grad():
+                traj_dist, goals, risk = model(states, mask)
+
+            target_pred_mu = traj_dist[:, :, :2]
+
+            current_neighbor_pos = states[:, -1, 1:, :2]
+            current_neighbor_vel = states[:, -1, 1:, 2:4] * 30.0
+            dt = 0.1
+            time_steps = torch.arange(1, T_f + 1, device=DEVICE).view(1, T_f, 1, 1).float() * dt
+            neighbors_future_pred = current_neighbor_pos.unsqueeze(1) + current_neighbor_vel.unsqueeze(1) * time_steps
+
+            # GT collision labels (min distance < 2m)
+            gt_dist = torch.norm(
+                gt_target_future.unsqueeze(2) - gt_neighbor_futures, dim=-1
+            )
+            gt_min_dist = gt_dist.min(dim=1).values
+
+            n_eval = min(neighbors_future_pred.shape[2], n_neighbors)
+            for nv_idx in range(n_eval):
+                gt_collision = 1 if gt_min_dist[0, nv_idx].item() < 2.0 else 0
+                all_gt.append(gt_collision)
+
+            # Run each metric
+            for name in all_metric_names:
+                metric = RiskMetricRegistry.get(name)
+                try:
+                    risk_values = metric.compute(
+                        target_pred_mu, neighbors_future_pred, dt=dt, collision_threshold=2.0
+                    )
+                except Exception:
+                    for nv_idx in range(n_eval):
+                        per_metric_pred[name].append(0)
+                    continue
+
+                for nv_idx in range(n_eval):
+                    val = risk_values[0, nv_idx].item()
+                    pred = 1 if metric.is_collision(val) else 0
+                    per_metric_pred[name].append(pred)
+
+        gt_array = np.array(all_gt)
+
+        # Compute metrics for each risk metric and build comparison table
+        comparison_path = f"{LOG_DIR}/metric_comparison.txt"
+        os.makedirs(LOG_DIR, exist_ok=True)
+
+        header = f"{'Metric':<15} {'Threshold':>10} {'Dir':>6} {'TP':>5} {'FP':>5} {'FN':>5} {'TN':>5} {'Acc':>8} {'Prec':>8} {'Recall':>8} {'F1':>8}"
+        sep = '=' * len(header)
+
+        lines = []
+        lines.append("Risk Metric Comparison Report")
+        lines.append(f"Test samples: {len(test_samples)}, Total pairs: {len(gt_array)}")
+        lines.append(f"GT collisions: {int(gt_array.sum())}, GT non-collisions: {int((1-gt_array).sum())}")
+        lines.append("")
+        lines.append(sep)
+        lines.append(header)
+        lines.append(sep)
+
+        for name in all_metric_names:
+            pred_array = np.array(per_metric_pred[name])
+            m = collision_metrics_from_labels(pred_array, gt_array)
+            metric_instance = RiskMetricRegistry.get(name)
+            direction = ">" if metric_instance.higher_is_riskier else "<"
+            thresh = metric_instance.default_threshold
+
+            line = (f"{name:<15} {thresh:>10.3f} {direction:>6} "
+                    f"{int(m['tp']):>5} {int(m['fp']):>5} {int(m['fn']):>5} {int(m['tn']):>5} "
+                    f"{m['accuracy']:>8.4f} {m['precision']:>8.4f} {m['recall']:>8.4f} {m['f1']:>8.4f}")
+            lines.append(line)
+
+        lines.append(sep)
+
+        # Print and save
+        for line in lines:
+            logger.info(line)
+
+        with open(comparison_path, "w") as f:
+            f.write("\n".join(lines) + "\n")
+        logger.info(f"\nComparison report saved to {comparison_path}")
+
 if __name__ == "__main__":
     main()
-
