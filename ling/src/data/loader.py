@@ -510,6 +510,7 @@ class NGSIMDataLoader:
                     "vehicle_lengths": v_lengths,
                     "vehicle_widths": v_widths,
                     "lane_ids": v_lanes,
+                    "frame_id_start": fid_start,
                 }
                 scenes.append(scene)
 
@@ -592,9 +593,12 @@ class NGSIMDataLoader:
         test_ratio: float = 0.2,
         seed: int = 42,
     ) -> Tuple[list, list, list]:
-        """Split samples into train / val / test sets.
+        """Split samples into train / val / test sets using TEMPORAL splitting.
 
-        The split is done at the sample level with shuffling.
+        Scenes are sorted by their starting frame_id. The earliest 70% of
+        time goes to training, the next 10% to validation, and the final
+        20% to testing. This prevents temporal data leakage from
+        overlapping sliding windows.
 
         Returns:
             (train_samples, val_samples, test_samples)
@@ -602,23 +606,52 @@ class NGSIMDataLoader:
         samples = self.build_samples() if not hasattr(self, "_samples_cache") else self._samples_cache
         self._samples_cache = samples
 
-        rng = np.random.default_rng(seed)
-        indices = rng.permutation(len(samples))
+        if not samples:
+            logger.info("[NGSIMLoader] No samples to split.")
+            return [], [], []
 
-        n = len(samples)
+        # Each sample is (states, gt_pos, gt_goals, mask, vehicle_ids)
+        # The corresponding scene's frame_id_start is stored in self.scenes
+        # Pair each sample with its scene's start frame for sorting
+        scene_starts = []
+        for i, scene in enumerate(self.scenes):
+            fid = scene.get("frame_id_start", 0)
+            scene_starts.append(fid)
+
+        # Build (frame_id_start, sample_index) pairs and sort by time
+        n = min(len(samples), len(scene_starts))
+        indexed = sorted(range(n), key=lambda i: scene_starts[i])
+
         n_train = int(n * train_ratio)
         n_val = int(n * val_ratio)
 
-        train_idx = indices[:n_train]
-        val_idx = indices[n_train: n_train + n_val]
-        test_idx = indices[n_train + n_val:]
+        train_idx = indexed[:n_train]
+        val_idx = indexed[n_train: n_train + n_val]
+        test_idx = indexed[n_train + n_val:]
 
         train = [samples[i] for i in train_idx]
         val = [samples[i] for i in val_idx]
         test = [samples[i] for i in test_idx]
 
-        logger.info(f"[NGSIMLoader] Split: train={len(train)}, "
-              f"val={len(val)}, test={len(test)}")
+        # Log the temporal boundaries
+        if train_idx:
+            train_frames = [scene_starts[i] for i in train_idx]
+            val_frames = [scene_starts[i] for i in val_idx] if val_idx else []
+            test_frames = [scene_starts[i] for i in test_idx] if test_idx else []
+            logger.info(f"[NGSIMLoader] Temporal split: train={len(train)} "
+                  f"(frames {min(train_frames)}-{max(train_frames)}), "
+                  f"val={len(val)} "
+                  f"(frames {min(val_frames) if val_frames else 'N/A'}-{max(val_frames) if val_frames else 'N/A'}), "
+                  f"test={len(test)} "
+                  f"(frames {min(test_frames) if test_frames else 'N/A'}-{max(test_frames) if test_frames else 'N/A'})")
+        else:
+            logger.info(f"[NGSIMLoader] Split: train={len(train)}, "
+                  f"val={len(val)}, test={len(test)}")
+
+        # Store indices so callers can access corresponding scenes
+        self._split_indices = {
+            'train': train_idx, 'val': val_idx, 'test': test_idx
+        }
         return train, val, test
 
 

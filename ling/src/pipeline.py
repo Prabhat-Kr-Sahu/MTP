@@ -234,6 +234,8 @@ def main():
 
         # We will use the specified collision metric
         from src.evaluation.risk_metrics import RiskMetricRegistry
+        from src.evaluation.collision import collision_metrics_from_labels
+        import numpy as np
         metric_name = args.collision_metric.strip()
         threshold = args.collision_threshold
         metric = RiskMetricRegistry.get(metric_name)
@@ -249,20 +251,45 @@ def main():
         if not test_samples:
             logger.info("No test samples available.")
             return
+
+        # Get the scene indices for test samples so we can access GT futures
+        test_scene_indices = loader._split_indices['test']
             
         collision_log_path = f"{LOG_DIR}/collisions.txt"
+        metrics_log_path = f"{LOG_DIR}/collision_metrics.txt"
         logger.info(f"Evaluating {len(test_samples)} test samples for collisions...")
         logger.info(f"Using metric '{metric_name}' with threshold {threshold}")
         logger.info(f"Writing collisions to {collision_log_path}")
         
         num_collisions = 0
+        all_pred_labels = []  # binary: 1 = predicted collision
+        all_gt_labels = []    # binary: 1 = GT collision
+        
+        T_h = loader.history_frames  # 30
+        T_f = loader.future_frames   # 50
+        
         os.makedirs(LOG_DIR, exist_ok=True)
         with open(collision_log_path, "w") as f:
-            f.write(f"Target_Vehicle_ID,Neighbor_Vehicle_ID,{metric_name.upper()}_Value\n")
+            f.write(f"Target_Vehicle_ID,Neighbor_Vehicle_ID,{metric_name.upper()}_Value,GT_Collision\n")
             
             for i, sample in enumerate(test_samples):
                 states, gt_pos, gt_goals, mask, vehicle_ids = sample
                 target_id = vehicle_ids[0]
+                
+                # Get the corresponding scene for GT neighbor futures
+                scene_idx = test_scene_indices[i]
+                scene = loader.scenes[scene_idx]
+                scene_frames = scene["frames"]  # (80, N, 4)
+                
+                # GT neighbor future trajectories: frames[T_h:T_h+T_f, 1:, :2]
+                n_scene_vehicles = scene_frames.shape[1]
+                n_neighbors = n_scene_vehicles - 1
+                gt_target_future = torch.from_numpy(
+                    scene_frames[T_h:T_h + T_f, 0, :2]
+                ).float().unsqueeze(0)  # (1, T_f, 2)
+                gt_neighbor_futures = torch.from_numpy(
+                    scene_frames[T_h:T_h + T_f, 1:, :2]
+                ).float().unsqueeze(0)  # (1, T_f, N_v, 2)
                 
                 if norm_stats:
                     states = apply_normalization(states, norm_stats)
@@ -274,33 +301,81 @@ def main():
 
                 target_pred_mu = traj_dist[:, :, :2]
                 
-                # Approximate neighbor future: pos + vel * t
+                # Approximate neighbor future: pos + vel * t (for predictions)
                 current_neighbor_pos = states[:, -1, 1:, :2]  # (1, N_v, 2)
                 current_neighbor_vel = states[:, -1, 1:, 2:4] * 30.0  # (1, N_v, 2)
                 
-                T_f = traj_dist.shape[1]
                 dt = 0.1
                 time_steps = torch.arange(1, T_f + 1, device=DEVICE).view(1, T_f, 1, 1).float() * dt
-                neighbors_future = current_neighbor_pos.unsqueeze(1) + current_neighbor_vel.unsqueeze(1) * time_steps
+                neighbors_future_pred = current_neighbor_pos.unsqueeze(1) + current_neighbor_vel.unsqueeze(1) * time_steps
 
-                # Compute metric
-                risk_values = metric.compute(target_pred_mu, neighbors_future, dt=dt, collision_threshold=threshold)
+                # Compute predicted risk metric
+                risk_values = metric.compute(target_pred_mu, neighbors_future_pred, dt=dt, collision_threshold=threshold)
                 
-                # Check for collisions
-                # risk_values is (1, N_v)
-                for nv_idx in range(risk_values.shape[1]):
-                    val = risk_values[0, nv_idx].item()
+                # Compute GT collision labels using actual scene trajectories
+                # GT min distance between target and each neighbor
+                gt_dist = torch.norm(
+                    gt_target_future.unsqueeze(2) - gt_neighbor_futures, dim=-1
+                )  # (1, T_f, N_v)
+                gt_min_dist = gt_dist.min(dim=1).values  # (1, N_v)
+                
+                # For each neighbor, check predicted vs GT collision
+                n_eval = min(risk_values.shape[1], n_neighbors)
+                for nv_idx in range(n_eval):
+                    pred_val = risk_values[0, nv_idx].item()
+                    gt_d = gt_min_dist[0, nv_idx].item()
                     
-                    # For metrics where "lower is riskier" (min_dist, ttc)
-                    if val < threshold:
+                    pred_collision = 1 if pred_val < threshold else 0
+                    gt_collision = 1 if gt_d < threshold else 0
+                    
+                    all_pred_labels.append(pred_collision)
+                    all_gt_labels.append(gt_collision)
+                    
+                    if pred_collision or gt_collision:
                         neighbor_id = vehicle_ids[nv_idx + 1]
-                        f.write(f"{target_id},{neighbor_id},{val:.3f}\n")
-                        num_collisions += 1
+                        f.write(f"{target_id},{neighbor_id},{pred_val:.3f},{gt_collision}\n")
+                        if pred_collision:
+                            num_collisions += 1
                         
                 if (i + 1) % 100 == 0:
                     logger.info(f"Processed {i+1}/{len(test_samples)} samples...")
                     
-        logger.info(f"Finished evaluating collisions! Found {num_collisions} colliding pairs.")
+        logger.info(f"Finished evaluating collisions! Found {num_collisions} predicted colliding pairs.")
+        
+        # Compute and log classification metrics
+        metrics = collision_metrics_from_labels(
+            np.array(all_pred_labels), np.array(all_gt_labels)
+        )
+        
+        logger.info(f"\n{'='*50}")
+        logger.info(f"Collision Prediction Metrics (metric={metric_name}, threshold={threshold})")
+        logger.info(f"{'='*50}")
+        logger.info(f"  Total pairs evaluated: {len(all_pred_labels)}")
+        logger.info(f"  True Positives:  {int(metrics['tp'])}")
+        logger.info(f"  False Positives: {int(metrics['fp'])}")
+        logger.info(f"  False Negatives: {int(metrics['fn'])}")
+        logger.info(f"  True Negatives:  {int(metrics['tn'])}")
+        logger.info(f"  Accuracy:   {metrics['accuracy']:.4f}")
+        logger.info(f"  Precision:  {metrics['precision']:.4f}")
+        logger.info(f"  Recall:     {metrics['recall']:.4f}")
+        logger.info(f"  F1 Score:   {metrics['f1']:.4f}")
+        logger.info(f"{'='*50}")
+        
+        # Save metrics to file
+        with open(metrics_log_path, "w") as f:
+            f.write(f"Collision Prediction Metrics\n")
+            f.write(f"Metric: {metric_name}, Threshold: {threshold}\n")
+            f.write(f"{'='*40}\n")
+            f.write(f"Total pairs evaluated: {len(all_pred_labels)}\n")
+            f.write(f"True Positives:  {int(metrics['tp'])}\n")
+            f.write(f"False Positives: {int(metrics['fp'])}\n")
+            f.write(f"False Negatives: {int(metrics['fn'])}\n")
+            f.write(f"True Negatives:  {int(metrics['tn'])}\n")
+            f.write(f"Accuracy:   {metrics['accuracy']:.4f}\n")
+            f.write(f"Precision:  {metrics['precision']:.4f}\n")
+            f.write(f"Recall:     {metrics['recall']:.4f}\n")
+            f.write(f"F1 Score:   {metrics['f1']:.4f}\n")
+        logger.info(f"Metrics saved to {metrics_log_path}")
 
 if __name__ == "__main__":
     main()
