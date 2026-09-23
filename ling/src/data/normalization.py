@@ -8,13 +8,18 @@ def compute_normalization_stats(states_list):
     """Compute per-feature mean/std from TRAINING states only.
 
     Args:
-        states_list: list of (1, T_h, N, F) tensors.
+        states_list: list of (1, T_h, N_i, F) tensors (N_i may vary).
     Returns:
         dict with mean/std lists.
     """
-    all_states = torch.cat(states_list, dim=0)  # (N_samples, T_h, N, F)
-    mean = all_states.mean(dim=(0, 1, 2))
-    std = all_states.std(dim=(0, 1, 2)).clamp(min=1e-6)
+    # Flatten all states to (total_entries, F) ignoring variable N
+    flat = []
+    for s in states_list:
+        # s: (1, T_h, N_i, F) → reshape to (-1, F)
+        flat.append(s.reshape(-1, s.shape[-1]))
+    all_flat = torch.cat(flat, dim=0)  # (total, F)
+    mean = all_flat.mean(dim=0)
+    std = all_flat.std(dim=0).clamp(min=1e-6)
     return {"mean": mean.tolist(), "std": std.tolist(), "feature_dim": mean.numel()}
 
 
