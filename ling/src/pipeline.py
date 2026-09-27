@@ -23,12 +23,14 @@ from src.intentions.kmeans import load_codebook
 
 def main():
     parser = argparse.ArgumentParser(description="STRAP Trajectory Prediction Pipeline")
-    parser.add_argument("--mode", type=str, default="train", choices=["train", "eval", "predict", "log_collisions", "compare_metrics"])
+    parser.add_argument("--mode", type=str, default="train", choices=["prepare", "train", "eval", "predict", "log_collisions", "compare_metrics"])
     parser.add_argument("--debug", action="store_true", help="Use small dataset for debugging")
     parser.add_argument("--use_risk_loss", action="store_true", default=True, help="Use risk-scaled loss (STRAP-R)")
     parser.add_argument("--basic_loss", action="store_true", help="Use basic loss (STRAP-B)")
     parser.add_argument("--epochs", type=int, default=NUM_EPOCHS)
     parser.add_argument("--lr", type=float, default=LEARNING_RATE)
+    parser.add_argument("--resume", type=str, default=None, help="Checkpoint path to resume training from")
+    parser.add_argument("--checkpoint-every", type=int, default=2, help="Save periodic checkpoints every N epochs")
     parser.add_argument("--risk_metrics", type=str, default="ttc,min_dist",
                         help="Comma-separated list of risk metrics to evaluate in predict mode")
     parser.add_argument("--collision_metric", type=str, default="min_dist",
@@ -39,6 +41,21 @@ def main():
 
     use_risk_loss = not args.basic_loss and args.use_risk_loss
     beta = 0.0  # risk-scaled loss bias
+
+    if args.mode == "prepare":
+        max_rows = 50000 if args.debug else None
+        loader = NGSIMDataLoader(location="us-101", max_rows=max_rows)
+        loader.fetch()
+        train_samples, val_samples, test_samples = loader.get_splits()
+        stats = loader.get_dataset_stats()
+        logger.info(
+            "Dataset prepared: rows=%s, vehicles=%s, frames=%s, frame_range=%s, "
+            "samples(train/val/test)=%s/%s/%s",
+            stats.get("total_rows", 0), stats.get("unique_vehicles", 0),
+            stats.get("num_frames", 0), stats.get("frame_range", "N/A"),
+            len(train_samples), len(val_samples), len(test_samples),
+        )
+        return
 
     # Initialize model
     # State dimension: relative_pos(2) + vel(2) + type(1) + lane(1)
@@ -71,6 +88,8 @@ def main():
             use_risk_loss=use_risk_loss,
             beta=beta,
             debug=args.debug,
+            resume_from=args.resume,
+            checkpoint_every=args.checkpoint_every,
         )
 
         # Print final metrics

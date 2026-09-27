@@ -95,9 +95,25 @@ pip install torch numpy pandas scikit-learn matplotlib pytest
 
 ## Quick Start
 
+### Prepare the NGSIM dataset
+```bash
+python src/pipeline.py --mode prepare
+```
+
+This downloads the default `us-101` NGSIM data from the Socrata API,
+converts measurements to metric units, caches the CSV under
+`data/raw/ngsim/`, and logs dataset and train/validation/test sample counts.
+Use `--debug` for a 50,000-row preparation run. Full training uses all rows.
+
 ### Train
 ```bash
 python src/pipeline.py --mode train
+```
+
+Training saves `best_model.pt`, `final_model.pt`, `last_checkpoint.pt`, and
+periodic `epoch_<N>.pt` checkpoints. Resume with:
+```bash
+python src/pipeline.py --mode train --resume checkpoints/last_checkpoint.pt
 ```
 
 ### Train with basic loss (STRAP-B)
@@ -148,12 +164,7 @@ All hyperparameters are defined in `src/config.py`:
 
 The implementation is designed for **NGSIM** (Next Generation Simulation) dataset. The paper also evaluates on **HighD**.
 
-Since NGSIM data is not included in this repository, a synthetic data generator (`src/data/generate_synthetic.py`) is provided for testing the full pipeline. To use real NGSIM data:
-
-1. Download NGSIM data from [ITS DataHub](https://data.transportation.gov/)
-2. Place the data in `data/raw/ngsim/`
-3. Update `src/data/loader.py` with the appropriate parsing logic
-4. The data loader expects CSV files with columns: `vehicle_id, frame_id, local_x, local_y, velocity, acceleration, vehicle_type, lane_id`
+Since NGSIM data is not included in this repository, a synthetic data generator (`src/data/generate_synthetic.py`) is provided for testing the full pipeline. Real NGSIM data is downloaded from the Socrata API by `--mode prepare` and cached in `data/raw/ngsim/ngsim_us-101.csv`.
 
 ## Key Components
 

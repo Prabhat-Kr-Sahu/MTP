@@ -114,6 +114,8 @@ def train(
     use_risk_loss: bool = True,
     beta: float = 0.0,
     debug: bool = False,
+    resume_from: str = None,
+    checkpoint_every: int = 2,
 ):
     """Full training loop."""
     os.makedirs(CHECKPOINT_DIR, exist_ok=True)
@@ -127,6 +129,24 @@ def train(
 
     best_val_loss = float("inf")
     training_log = []
+    start_epoch = 0
+
+    if resume_from:
+        checkpoint = torch.load(resume_from, map_location=DEVICE, weights_only=False)
+        required_keys = {"model_state_dict", "optimizer_state_dict", "epoch"}
+        missing_keys = required_keys - checkpoint.keys()
+        if missing_keys:
+            raise ValueError(
+                f"Checkpoint {resume_from} is missing required keys: {sorted(missing_keys)}"
+            )
+        model.load_state_dict(checkpoint["model_state_dict"])
+        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        if "scheduler_state_dict" in checkpoint:
+            scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
+        start_epoch = checkpoint["epoch"]
+        best_val_loss = checkpoint.get("best_val_loss", float("inf"))
+        training_log = checkpoint.get("training_log", [])
+        logger.info(f"Resuming from {resume_from} at epoch {start_epoch + 1}")
 
     logger.info(f"Training STRAP on {DEVICE}")
     logger.info(f"Epochs: {num_epochs}, Risk Loss: {use_risk_loss}, Beta: {beta}, Debug: {debug}")
@@ -135,7 +155,15 @@ def train(
     max_rows = 50000 if debug else None
     loader = NGSIMDataLoader(location='us-101', max_rows=max_rows)
     loader.fetch()
-    train_samples, val_samples, _ = loader.get_splits(seed=SEED)
+    train_samples, val_samples, test_samples = loader.get_splits(seed=SEED)
+    stats = loader.get_dataset_stats()
+    logger.info(
+        "Dataset: rows=%s, vehicles=%s, frames=%s, frame_range=%s, "
+        "samples(train/val/test)=%s/%s/%s",
+        stats.get("total_rows", 0), stats.get("unique_vehicles", 0),
+        stats.get("num_frames", 0), stats.get("frame_range", "N/A"),
+        len(train_samples), len(val_samples), len(test_samples),
+    )
 
     # --- Normalization: compute from TRAINING data only ---
     logger.info("[Train] Computing normalization statistics from training data...")
@@ -173,7 +201,7 @@ def train(
     logger.info(f"Number of training batches: {len(train_dl)}")
     logger.info(f"Number of validation batches: {len(val_dl)}")
 
-    for epoch in range(num_epochs):
+    for epoch in range(start_epoch, num_epochs):
         train_loss, gl, tl = train_one_epoch(
             model, optimizer, train_dl, DEVICE, use_risk_loss, beta
         )
@@ -203,6 +231,20 @@ def train(
             best_val_loss = val_loss
             torch.save(model.state_dict(), f"{CHECKPOINT_DIR}/best_model.pt")
             logger.info(f"  -> Saved best checkpoint (val_loss={val_loss:.4f})")
+
+        checkpoint = {
+            "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "scheduler_state_dict": scheduler.state_dict(),
+            "epoch": epoch + 1,
+            "train_loss": train_loss,
+            "val_loss": val_loss,
+            "best_val_loss": best_val_loss,
+            "training_log": training_log,
+        }
+        torch.save(checkpoint, f"{CHECKPOINT_DIR}/last_checkpoint.pt")
+        if checkpoint_every > 0 and (epoch + 1) % checkpoint_every == 0:
+            torch.save(checkpoint, f"{CHECKPOINT_DIR}/epoch_{epoch + 1}.pt")
 
     # Save training log
     with open(f"{LOG_DIR}/training_log.json", "w") as f:

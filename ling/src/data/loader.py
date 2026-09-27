@@ -13,8 +13,10 @@ from src.logger import get_logger
 logger = get_logger()
 
 import os
+import shutil
 import time
 import json
+import http.client
 import urllib.request
 import urllib.parse
 import urllib.error
@@ -132,93 +134,147 @@ def fetch_ngsim(
     """
     os.makedirs(cache_dir, exist_ok=True)
     cache_path = os.path.join(cache_dir, f"ngsim_{location}.csv")
+    metadata_path = f"{cache_path}.meta.json"
+    mode = "full" if max_rows is None else f"rows_{max_rows}"
+    page_cache_dir = os.path.join(
+        cache_dir, f".ngsim_{location}_{mode}_p{page_size}.pages"
+    )
 
     # ---- Use cache if available ----
     if os.path.exists(cache_path) and not force_download:
-        logger.info(f"[NGSIMLoader] Loading cached data from {cache_path}")
-        df = pd.read_csv(cache_path)
-        if max_rows is not None:
-            df = df.head(max_rows)
-        return df
+        metadata = None
+        if os.path.exists(metadata_path):
+            with open(metadata_path, encoding="utf-8") as metadata_file:
+                metadata = json.load(metadata_file)
+        if max_rows is None and (
+            metadata is None or metadata.get("requested_max_rows") is not None
+        ):
+            logger.info("[NGSIMLoader] Cached data is not verified as complete; re-downloading")
+        else:
+            logger.info(f"[NGSIMLoader] Loading cached data from {cache_path}")
+            df = pd.read_csv(cache_path)
+            if max_rows is not None:
+                df = df.head(max_rows)
+            return df
+
+    if force_download and os.path.isdir(page_cache_dir):
+        shutil.rmtree(page_cache_dir)
+    os.makedirs(page_cache_dir, exist_ok=True)
 
     # ---- Paginated download ----
     logger.info(f"[NGSIMLoader] Downloading '{location}' data from SODA API …")
-    all_records: list = []
     offset = 0
     page_num = 0
+    total_rows = 0
 
     while True:
         remaining = None
         if max_rows is not None:
-            remaining = max_rows - len(all_records)
+            remaining = max_rows - total_rows
             if remaining <= 0:
                 break
         fetch_limit = min(page_size, remaining) if remaining else page_size
 
         page_num += 1
-        t0 = time.time()
-        try:
-            page = _fetch_page(location, limit=fetch_limit, offset=offset,
-                               app_token=app_token)
-        except urllib.error.HTTPError as exc:
-            if exc.code == 429:
-                # Rate-limited — back off and retry
-                wait = 10
-                logger.info(f"  Rate-limited. Waiting {wait}s …")
+        page_path = os.path.join(page_cache_dir, f"page_{offset:012d}.csv")
+        if os.path.exists(page_path):
+            page_df = pd.read_csv(page_path)
+            elapsed = 0.0
+            logger.info(f"  Resuming from saved page at offset {offset:,}")
+        else:
+            attempt = 0
+            while True:
+                t0 = time.time()
+                try:
+                    page = _fetch_page(
+                        location, limit=fetch_limit, offset=offset,
+                        app_token=app_token,
+                    )
+                    break
+                except urllib.error.HTTPError as exc:
+                    if exc.code != 429 and not 500 <= exc.code < 600:
+                        raise
+                    reason = f"HTTP {exc.code}"
+                except (
+                    urllib.error.URLError, TimeoutError, ConnectionError,
+                    http.client.HTTPException, json.JSONDecodeError,
+                ) as exc:
+                    reason = str(exc)
+
+                wait = min(5 * (2 ** min(attempt, 4)), 60)
+                logger.warning(
+                    f"  Page at offset {offset:,} failed ({reason}); "
+                    f"retrying in {wait}s"
+                )
                 time.sleep(wait)
-                continue
-            raise
+                attempt += 1
 
-        elapsed = time.time() - t0
-        if not page:
+            elapsed = time.time() - t0
+            if not page:
+                break
+
+            page_df = pd.DataFrame(page)
+            for col in _NUMERIC_COLS:
+                if col in page_df.columns:
+                    page_df[col] = pd.to_numeric(page_df[col], errors="coerce")
+            for col in _FT_COLS + _FT_PER_S_COLS + _FT_PER_S2_COLS:
+                if col in page_df.columns:
+                    page_df[col] = page_df[col] * _FT_TO_M
+            page_df.sort_values(["vehicle_id", "frame_id"], inplace=True)
+
+            temp_page_path = f"{page_path}.tmp"
+            page_df.to_csv(temp_page_path, index=False)
+            os.replace(temp_page_path, page_path)
+
+        page_rows = len(page_df)
+        if not page_rows:
             break
+        total_rows += page_rows
+        logger.info(f"  Page {page_num}: fetched {page_rows:,} rows "
+                    f"(total {total_rows:,}) in {elapsed:.1f}s")
 
-        all_records.extend(page)
-        logger.info(f"  Page {page_num}: fetched {len(page):,} rows "
-              f"(total {len(all_records):,}) in {elapsed:.1f}s")
-
-        if len(page) < fetch_limit:
+        if page_rows < fetch_limit:
             # Last page
             break
 
-        offset += len(page)
+        offset += page_rows
 
         # Polite pause between requests to avoid rate-limiting
         time.sleep(0.5)
 
-    if not all_records:
+    if not total_rows:
         raise RuntimeError(
             f"No records returned for location='{location}'. "
             f"Valid options: us-101, i-80, lankershim, peachtree."
         )
 
-    logger.info(f"[NGSIMLoader] Downloaded {len(all_records):,} rows for '{location}'")
+    logger.info(f"[NGSIMLoader] Downloaded {total_rows:,} rows for '{location}'")
 
-    # ---- Build DataFrame ----
-    df = pd.DataFrame(all_records)
+    # Assemble the final CSV by streaming saved pages, so another timeout or
+    # process restart does not discard already downloaded rows.
+    temp_cache_path = f"{cache_path}.tmp"
+    with open(temp_cache_path, "wb") as output_file:
+        for page_offset in range(0, total_rows, page_size):
+            page_path = os.path.join(
+                page_cache_dir, f"page_{page_offset:012d}.csv"
+            )
+            with open(page_path, "rb") as page_file:
+                if page_offset:
+                    page_file.readline()
+                shutil.copyfileobj(page_file, output_file)
+    os.replace(temp_cache_path, cache_path)
 
-    # Convert numeric columns from strings
-    for col in _NUMERIC_COLS:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
-
-    # ---- Unit conversion: feet → metres ----
-    for col in _FT_COLS:
-        if col in df.columns:
-            df[col] = df[col] * _FT_TO_M
-    for col in _FT_PER_S_COLS:
-        if col in df.columns:
-            df[col] = df[col] * _FT_TO_M
-    for col in _FT_PER_S2_COLS:
-        if col in df.columns:
-            df[col] = df[col] * _FT_TO_M
-
-    # Sort by vehicle then frame
+    df = pd.read_csv(cache_path)
     df.sort_values(["vehicle_id", "frame_id"], inplace=True)
     df.reset_index(drop=True, inplace=True)
-
-    # ---- Cache to disk ----
-    df.to_csv(cache_path, index=False)
+    with open(metadata_path, "w", encoding="utf-8") as metadata_file:
+        json.dump({
+            "location": location,
+            "requested_max_rows": max_rows,
+            "row_count": len(df),
+            "complete": max_rows is None,
+        }, metadata_file, indent=2)
+    shutil.rmtree(page_cache_dir)
     logger.info(f"[NGSIMLoader] Cached to {cache_path}")
 
     return df
@@ -366,153 +422,161 @@ class NGSIMDataLoader:
         self,
         max_scenes: Optional[int] = None,
     ) -> List[dict]:
-        """Create scene dicts from the loaded DataFrame.
-
-        Each scene is an 8-second contiguous window centred on a
-        *target vehicle*, containing up to ``max_neighbors`` nearby
-        vehicles that are present throughout the window.
-
-        The returned dict has the **same schema** as
-        ``generate_synthetic_trajectory()``::
-
-            {
-                "vehicle_ids":    np.ndarray (N,),
-                "frames":         np.ndarray (window_frames, N, 4),
-                "vehicle_types":  np.ndarray (N,),
-                "vehicle_lengths":np.ndarray (N,),
-                "vehicle_widths": np.ndarray (N,),
-                "lane_ids":       np.ndarray (N,),
-            }
-
-        Where the **first vehicle (index 0) is always the target**.
-        """
+        """Build target-vehicle windows using indexed frame and vehicle data."""
         if self.df is None:
             self.fetch()
 
         df = self.df
-        T = self.window_frames  # total frames in a scene (80)
-
+        window_length = self.window_frames
         scenes: List[dict] = []
+        all_vehicle_ids = np.sort(df["vehicle_id"].unique().astype(int))
+        vehicle_data = {}
+        eligible_vehicle_ids = []
 
-        # Group by vehicle to find candidates with enough frames
-        vehicle_groups = df.groupby("vehicle_id")
-        eligible_vids = [
-            int(vid) for vid, grp in vehicle_groups
-            if len(grp) >= self.min_vehicle_frames
-        ]
-        logger.info(f"[NGSIMLoader] {len(eligible_vids)} vehicles with "
-              f"≥{self.min_vehicle_frames} frames")
+        for vehicle_id, vehicle_df in df.groupby("vehicle_id", sort=True):
+            vehicle_df = vehicle_df.sort_values("frame_id")
+            vehicle_id = int(vehicle_id)
+            vehicle_data[vehicle_id] = {
+                "frames": vehicle_df["frame_id"].to_numpy(dtype=np.int64),
+                "local_x": vehicle_df["local_x"].to_numpy(),
+                "local_y": vehicle_df["local_y"].to_numpy(),
+                "velocity": vehicle_df["v_vel"].to_numpy(),
+                "type": vehicle_df["v_class"].to_numpy(),
+                "length": vehicle_df["v_length"].to_numpy(),
+                "width": vehicle_df["v_width"].to_numpy(),
+                "lane": vehicle_df["lane_id"].to_numpy(),
+            }
+            if len(vehicle_df) >= self.min_vehicle_frames:
+                eligible_vehicle_ids.append(vehicle_id)
 
-        for target_vid in eligible_vids:
-            target_df = df[df["vehicle_id"] == target_vid].sort_values("frame_id")
-            target_frames = target_df["frame_id"].values.astype(int)
+        logger.info(
+            f"[NGSIMLoader] {len(eligible_vehicle_ids)} vehicles with "
+            f">={self.min_vehicle_frames} frames"
+        )
 
-            # Sliding windows over this vehicle's lifetime
-            for start_pos in range(0, len(target_frames) - T + 1, self.stride):
-                window_fids = target_frames[start_pos: start_pos + T]
+        frame_min = int(df["frame_id"].min())
+        frame_max = int(df["frame_id"].max())
+        frame_masks = [0] * (frame_max - frame_min + 1)
+        frame_data = {}
+        for frame_id, frame_df in df.groupby("frame_id", sort=False):
+            frame_vehicle_ids = frame_df["vehicle_id"].to_numpy(dtype=np.int64)
+            frame_order = np.argsort(frame_vehicle_ids, kind="stable")
+            frame_vehicle_ids = frame_vehicle_ids[frame_order]
+            local_x = frame_df["local_x"].to_numpy()[frame_order]
+            local_y = frame_df["local_y"].to_numpy()[frame_order]
+            vehicle_indices = np.searchsorted(all_vehicle_ids, frame_vehicle_ids)
+            frame_mask = 0
+            for vehicle_index in np.unique(vehicle_indices):
+                frame_mask |= 1 << int(vehicle_index)
+            frame_masks[int(frame_id) - frame_min] = frame_mask
+            frame_data[int(frame_id)] = (frame_vehicle_ids, local_x, local_y)
 
-                # Must be contiguous (consecutive frame IDs)
-                if window_fids[-1] - window_fids[0] != T - 1:
-                    continue
+        prefix_masks = [0] * len(frame_masks)
+        suffix_masks = [0] * len(frame_masks)
+        all_vehicles_mask = (1 << len(all_vehicle_ids)) - 1
+        for block_start in range(0, len(frame_masks), window_length):
+            block_end = min(block_start + window_length, len(frame_masks))
+            running_mask = all_vehicles_mask
+            for frame_index in range(block_start, block_end):
+                running_mask &= frame_masks[frame_index]
+                prefix_masks[frame_index] = running_mask
+            running_mask = all_vehicles_mask
+            for frame_index in range(block_end - 1, block_start - 1, -1):
+                running_mask &= frame_masks[frame_index]
+                suffix_masks[frame_index] = running_mask
 
-                fid_start, fid_end = int(window_fids[0]), int(window_fids[-1])
-
-                # Find all vehicles present in this frame range
-                window_df = df[
-                    (df["frame_id"] >= fid_start) &
-                    (df["frame_id"] <= fid_end)
+        window_cache = {}
+        for target_vehicle_id in eligible_vehicle_ids:
+            target_data = vehicle_data[target_vehicle_id]
+            target_frames = target_data["frames"]
+            for start_position in range(
+                0, len(target_frames) - window_length + 1, self.stride
+            ):
+                window_frame_ids = target_frames[
+                    start_position:start_position + window_length
                 ]
-
-                # Keep only vehicles present in ALL frames of the window
-                veh_counts = window_df.groupby("vehicle_id")["frame_id"].nunique()
-                fully_present = veh_counts[veh_counts == T].index.astype(int).tolist()
-
-                if target_vid not in fully_present:
-                    continue  # shouldn't happen, but guard
-
-                # Select neighbours closest to target at the history midpoint
-                mid_fid = fid_start + self.history_frames // 2
-                mid_frame = window_df[window_df["frame_id"] == mid_fid]
-                if mid_frame.empty:
+                if window_frame_ids[-1] - window_frame_ids[0] != window_length - 1:
                     continue
 
-                target_row = mid_frame[mid_frame["vehicle_id"] == target_vid]
-                if target_row.empty:
-                    continue
-
-                tx = float(target_row["local_x"].iloc[0])
-                ty = float(target_row["local_y"].iloc[0])
-
-                # Risk-aware neighbor selection (STRAP paper §12)
-                # Compute S-field risk for each candidate relative to target
-                neighbor_candidates = [v for v in fully_present if v != target_vid]
-                if not neighbor_candidates:
-                    continue
-
-                candidate_risks = {}
-                for nv in neighbor_candidates:
-                    nr = mid_frame[mid_frame["vehicle_id"] == nv]
-                    if nr.empty:
-                        continue
-                    nx = float(nr["local_x"].iloc[0])
-                    ny = float(nr["local_y"].iloc[0])
-                    dx = nx - tx
-                    dy = ny - ty
-                    # S-field: exp(-(|dx/γx|^αx + |dy/γy|^αy))
-                    s_risk = float(np.exp(
-                        -(abs(dx / _GAMMA_X) ** _ALPHA_X +
-                          abs(dy / _GAMMA_Y) ** _ALPHA_Y)
-                    ))
-                    candidate_risks[nv] = s_risk
-
-                # Keep vehicles with risk > threshold, rank by risk (desc)
-                interacting = {v: r for v, r in candidate_risks.items()
-                               if r > _RISK_THRESHOLD}
-                if interacting:
-                    sorted_neighbors = sorted(interacting, key=interacting.get,
-                                              reverse=True)
-                else:
-                    # Fallback: take closest by distance if no one exceeds threshold
-                    sorted_neighbors = sorted(
-                        candidate_risks,
-                        key=lambda v: abs(candidate_risks[v]),
-                        reverse=True,
+                frame_start = int(window_frame_ids[0])
+                cache_entry = window_cache.get(frame_start)
+                if cache_entry is None:
+                    start_index = frame_start - frame_min
+                    end_index = start_index + window_length - 1
+                    full_window_mask = suffix_masks[start_index] & prefix_masks[end_index]
+                    present_indices = []
+                    while full_window_mask:
+                        lowest_bit = full_window_mask & -full_window_mask
+                        present_indices.append(lowest_bit.bit_length() - 1)
+                        full_window_mask ^= lowest_bit
+                    present_vehicle_ids = all_vehicle_ids[present_indices]
+                    midpoint_frame = frame_start + self.history_frames // 2
+                    cache_entry = (
+                        present_vehicle_ids,
+                        frame_data.get(midpoint_frame),
                     )
-                selected = sorted_neighbors[: self.max_neighbors]
+                    window_cache[frame_start] = cache_entry
 
-                # Order: target first, then neighbours
-                scene_vids = [target_vid] + selected
-                N = len(scene_vids)
+                present_vehicle_ids, midpoint_data = cache_entry
+                if midpoint_data is None or target_vehicle_id not in present_vehicle_ids:
+                    continue
 
-                # Build the (T, N, 4) array: [x, y, vx, vy]
-                frames_arr = np.zeros((T, N, 4), dtype=np.float32)
-                v_types = np.zeros(N, dtype=np.float32)
-                v_lengths = np.zeros(N, dtype=np.float32)
-                v_widths = np.zeros(N, dtype=np.float32)
-                v_lanes = np.zeros(N, dtype=np.float32)
+                neighbor_ids = present_vehicle_ids[
+                    present_vehicle_ids != target_vehicle_id
+                ]
+                if not len(neighbor_ids):
+                    continue
 
-                for vi, vid in enumerate(scene_vids):
-                    vdf = window_df[window_df["vehicle_id"] == vid].sort_values("frame_id")
-                    frames_arr[:, vi, 0] = vdf["local_x"].values[:T]
-                    frames_arr[:, vi, 1] = vdf["local_y"].values[:T]
-                    frames_arr[:, vi, 2] = 0.0   # vx ≈ 0 on freeway
-                    frames_arr[:, vi, 3] = vdf["v_vel"].values[:T]
+                midpoint_vehicle_ids, midpoint_x, midpoint_y = midpoint_data
+                midpoint_positions = np.searchsorted(midpoint_vehicle_ids, neighbor_ids)
+                target_position = np.searchsorted(midpoint_vehicle_ids, target_vehicle_id)
+                delta_x = midpoint_x[midpoint_positions] - midpoint_x[target_position]
+                delta_y = midpoint_y[midpoint_positions] - midpoint_y[target_position]
+                neighbor_risks = np.exp(-(
+                    np.abs(delta_x / _GAMMA_X) ** _ALPHA_X
+                    + np.abs(delta_y / _GAMMA_Y) ** _ALPHA_Y
+                ))
 
-                    v_types[vi] = vdf["v_class"].iloc[0]
-                    v_lengths[vi] = vdf["v_length"].iloc[0]
-                    v_widths[vi] = vdf["v_width"].iloc[0]
-                    v_lanes[vi] = vdf["lane_id"].iloc[0]
+                interacting = neighbor_risks > _RISK_THRESHOLD
+                if np.any(interacting):
+                    ranked_indices = np.argsort(-neighbor_risks, kind="stable")
+                    ranked_indices = ranked_indices[interacting[ranked_indices]]
+                else:
+                    ranked_indices = np.argsort(-np.abs(neighbor_risks), kind="stable")
+                selected_ids = neighbor_ids[
+                    ranked_indices[:self.max_neighbors]
+                ].tolist()
+                scene_vehicle_ids = [target_vehicle_id] + selected_ids
+                num_scene_vehicles = len(scene_vehicle_ids)
 
-                scene = {
-                    "vehicle_ids": np.array(scene_vids),
-                    "frames": frames_arr,
-                    "vehicle_types": v_types,
-                    "vehicle_lengths": v_lengths,
-                    "vehicle_widths": v_widths,
-                    "lane_ids": v_lanes,
-                    "frame_id_start": fid_start,
-                }
-                scenes.append(scene)
+                frames_array = np.zeros(
+                    (window_length, num_scene_vehicles, 4), dtype=np.float32
+                )
+                vehicle_types = np.zeros(num_scene_vehicles, dtype=np.float32)
+                vehicle_lengths = np.zeros(num_scene_vehicles, dtype=np.float32)
+                vehicle_widths = np.zeros(num_scene_vehicles, dtype=np.float32)
+                lane_ids = np.zeros(num_scene_vehicles, dtype=np.float32)
+                for scene_index, vehicle_id in enumerate(scene_vehicle_ids):
+                    data = vehicle_data[vehicle_id]
+                    row_start = np.searchsorted(data["frames"], frame_start)
+                    row_end = row_start + window_length
+                    frames_array[:, scene_index, 0] = data["local_x"][row_start:row_end]
+                    frames_array[:, scene_index, 1] = data["local_y"][row_start:row_end]
+                    frames_array[:, scene_index, 3] = data["velocity"][row_start:row_end]
+                    vehicle_types[scene_index] = data["type"][row_start]
+                    vehicle_lengths[scene_index] = data["length"][row_start]
+                    vehicle_widths[scene_index] = data["width"][row_start]
+                    lane_ids[scene_index] = data["lane"][row_start]
+
+                scenes.append({
+                    "vehicle_ids": np.asarray(scene_vehicle_ids),
+                    "frames": frames_array,
+                    "vehicle_types": vehicle_types,
+                    "vehicle_lengths": vehicle_lengths,
+                    "vehicle_widths": vehicle_widths,
+                    "lane_ids": lane_ids,
+                    "frame_id_start": frame_start,
+                })
 
                 if max_scenes is not None and len(scenes) >= max_scenes:
                     break
@@ -578,6 +642,7 @@ class NGSIMDataLoader:
             stats.update({
                 "total_rows": len(self.df),
                 "unique_vehicles": int(self.df["vehicle_id"].nunique()),
+                "num_frames": int(self.df["frame_id"].nunique()),
                 "frame_range": (
                     int(self.df["frame_id"].min()),
                     int(self.df["frame_id"].max()),

@@ -8,7 +8,11 @@ venv/
 
 # Data (large files, don't commit)
 ling/data/
+ling/data/raw/ngsim/
 *.csv
+/data/
+/checkpoints/
+/logs/
 
 # Model checkpoints (large binaries)
 ling/checkpoints/*.pt
@@ -26,3 +30,5 @@ ling/results/
 # OS
 .DS_Store
 Thumbs.db
+authtokens.txt
+t.txt
