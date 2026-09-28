@@ -58,9 +58,9 @@ def main():
         return
 
     # Initialize model
-    # State dimension: relative_pos(2) + vel(2) + type(1) + lane(1)
-    #   + length(1) + width(1) = 8 base + risk(2) = 10 (see generate_synthetic.py)
-    input_dim = 10
+    # State dimension: relative_pos(2) + velocity(2) + acceleration(1)
+    #   + type(1) + lane(1) + dimensions(2) + risk(2) = 11.
+    input_dim = 11
     model = STRAP(
         input_dim=input_dim,
         d_model=64,
@@ -90,6 +90,7 @@ def main():
             debug=args.debug,
             resume_from=args.resume,
             checkpoint_every=args.checkpoint_every,
+            learning_rate=args.lr,
         )
 
         # Print final metrics
@@ -139,13 +140,13 @@ def main():
             centers = load_codebook(intent_path)
             model.risk_decoder.set_intentions(torch.from_numpy(centers))
 
-        loader = NGSIMDataLoader(location='us-101', max_rows=50000)
+        loader = NGSIMDataLoader(location='us-101', max_rows=None)
         loader.fetch()
         _, _, test_samples = loader.get_splits()
         if norm_stats:
             test_samples = [
-                (apply_normalization(s, norm_stats), gt, g, m, vids)
-                for s, gt, g, m, vids in test_samples
+                (apply_normalization(sample[0], norm_stats), *sample[1:])
+                for sample in test_samples
             ]
         test_dl = create_dataloader(test_samples, batch_size=32, shuffle=False)
 
@@ -174,7 +175,7 @@ def main():
         loader.fetch()
         samples = loader.build_samples(max_samples=1)
         if len(samples) > 0:
-            states, gt_pos, gt_goals, mask, vehicle_ids = samples[0]
+            states, gt_pos, gt_goals, mask, vehicle_ids, goal_mask, target_origin = samples[0]
             if norm_stats:
                 states = apply_normalization(states, norm_stats)
             states = states.to(DEVICE)
@@ -193,7 +194,7 @@ def main():
         # Evaluate extensible risk metrics
         from src.evaluation.risk_metrics import RiskMetricRegistry
 
-        target_pred_mu = traj_dist[:, :, :2]  # (1, T_f, 2)
+        target_pred_mu = traj_dist[:, :, :2]  # relative to final observed target position
         # gt_pos represents ground-truth future positions (B, T_f, 2) for target
         # Wait, the current create_sample returns gt_pos for the target only.
         # We need the neighbor futures to evaluate collisions.
@@ -292,7 +293,7 @@ def main():
             f.write(f"Target_Vehicle_ID,Neighbor_Vehicle_ID,{metric_name.upper()}_Value,GT_Collision\n")
             
             for i, sample in enumerate(test_samples):
-                states, gt_pos, gt_goals, mask, vehicle_ids = sample
+                states, gt_pos, gt_goals, mask, vehicle_ids, goal_mask, target_origin = sample
                 target_id = vehicle_ids[0]
                 
                 # Get the corresponding scene for GT neighbor futures
@@ -318,7 +319,7 @@ def main():
                 with torch.no_grad():
                     traj_dist, goals, risk = model(states, mask)
 
-                target_pred_mu = traj_dist[:, :, :2]
+                target_pred_mu = traj_dist[:, :, :2] + target_origin.to(DEVICE).unsqueeze(1)
                 
                 # Approximate neighbor future: pos + vel * t (for predictions)
                 current_neighbor_pos = states[:, -1, 1:, :2]  # (1, N_v, 2)
@@ -440,7 +441,7 @@ def main():
         gt_computed = False
 
         for i, sample in enumerate(test_samples):
-            states, gt_pos, gt_goals, mask, vehicle_ids = sample
+            states, gt_pos, gt_goals, mask, vehicle_ids, goal_mask, target_origin = sample
 
             scene_idx = test_scene_indices[i]
             scene = loader.scenes[scene_idx]
@@ -462,7 +463,7 @@ def main():
             with torch.no_grad():
                 traj_dist, goals, risk = model(states, mask)
 
-            target_pred_mu = traj_dist[:, :, :2]
+            target_pred_mu = traj_dist[:, :, :2] + target_origin.to(DEVICE).unsqueeze(1)
 
             current_neighbor_pos = states[:, -1, 1:, :2]
             current_neighbor_vel = states[:, -1, 1:, 2:4] * 30.0

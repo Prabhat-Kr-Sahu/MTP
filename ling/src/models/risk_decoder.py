@@ -2,6 +2,12 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from src.config import (
+    GAMMA_X, GAMMA_Y, ALPHA_X, ALPHA_Y,
+    D_STAR, T_STAR, BETA_1, BETA_2, DT,
+)
+from src.risk.o_field import closest_approach, compute_o_field
+from src.risk.s_field import compute_s_field
 
 
 class RiskAttentiveDecoder(nn.Module):
@@ -119,37 +125,31 @@ class RiskAttentiveDecoder(nn.Module):
         # Each mode: [x, y, vx, vy]
         intentions = self.intention_means.unsqueeze(0).expand(B, -1, -1)  # (B, K, 4)
 
-        # Compute risk for each intention mode
-        # For each mode k, compute risk based on neighbor goals and intention
-        # Risk = sum of S-field + O-field between target intention and neighbors
-        # Simplified: use neighbor goals + intention to compute future risk
+        intention_pos = intentions[:, :, None, :2]
+        intention_vel = intentions[:, :, None, 2:4]
+        neighbor_pos = neighbor_goals[:, None, :, :2]
+        neighbor_vel = neighbor_goals[:, None, :, 2:4]
+        relative_position = intention_pos - neighbor_pos
+        relative_velocity = intention_vel - neighbor_vel
 
-        # Compute S-field for each intention-neighbor pair
-        # intention: (B, K, 4) -> (B, K, 2) [x, y]
-        # neighbor_goals: (B, N_v, 4) -> (B, N_v, 2) [x, y]
-        intention_pos = intentions[:, :, :2]  # (B, K, 2)
-        neighbor_pos = neighbor_goals[:, :, :2]  # (B, N_v, 2)
+        s_field = compute_s_field(
+            relative_position[..., 0], relative_position[..., 1],
+            GAMMA_X, GAMMA_Y, ALPHA_X, ALPHA_Y,
+        )
+        min_distance, time_to_closest = closest_approach(
+            relative_position, relative_velocity
+        )
+        o_field = compute_o_field(
+            min_distance, time_to_closest.clamp(min=DT),
+            D_STAR, T_STAR, BETA_1, BETA_2,
+        )
+        if neighbor_mask is not None:
+            valid_neighbors = neighbor_mask[:, None, :].to(torch.bool)
+            s_field = s_field.masked_fill(~valid_neighbors, 0.0)
+            o_field = o_field.masked_fill(~valid_neighbors, 0.0)
 
-        # Expand for pairwise computation
-        int_exp = intention_pos.unsqueeze(2)  # (B, K, 1, 2)
-        neigh_exp = neighbor_pos.unsqueeze(1)  # (B, 1, N_v, 2)
-        delta = int_exp - neigh_exp  # (B, K, N_v, 2)
-
-        delta_x = delta[..., 0]  # (B, K, N_v)
-        delta_y = delta[..., 1]
-
-        # S-field (same parameters as config)
-        s_field = torch.exp(-(
-            (delta_x / 1.0).abs() ** 2 + (delta_y / 1.0).abs() ** 2
-        ))  # (B, K, N_v)
-
-        # O-field approximation using distance
-        dist = torch.norm(delta, dim=-1).clamp(min=0.1)  # (B, K, N_v)
-        o_field = torch.exp(-(dist / 5.0) ** 1.0)  # (B, K, N_v)
-
-        # Sum over neighbors
-        R_s = s_field.sum(dim=-1)  # (B, K)
-        R_o = o_field.sum(dim=-1)  # (B, K)
+        R_s = s_field.sum(dim=-1)
+        R_o = o_field.sum(dim=-1)
 
         # Risk field: (B, K, 2)
         risk_field = torch.stack([R_s, R_o], dim=-1)
@@ -178,37 +178,29 @@ class RiskAttentiveDecoder(nn.Module):
 
         risk_query = attn_out
 
-        # Trajectory generation
-        # Use the first (highest attention) risk query as the trajectory seed
-        # Actually, we need to generate a trajectory per intention
-        # For simplicity, use the mean of the risk-attended features
-        # Or use the lowest-risk intention's attended features
+        # The paper does not specify how the K conditioned modes become one
+        # bivariate-Gaussian output. Use risk-softmax weights and moment matching.
+        mode_weights = torch.softmax(-risk_field.sum(dim=-1), dim=-1)
+        mode_sequence = risk_query.reshape(B * self.k, 1, D).expand(-1, T_f, -1)
+        mode_features, _ = self.trajectory_lstm(mode_sequence)
+        raw = self.trajectory_mlp(mode_features).reshape(B, self.k, T_f, 5)
+        mode_mu = raw[..., :2]
+        mode_sigma = F.softplus(raw[..., 2:4]) + 1e-6
+        mode_rho = torch.tanh(raw[..., 4])
 
-        # Weighted combination by inverse risk (lower risk = higher weight)
-        risk_sum = risk_field.sum(dim=-1).clamp(min=1e-6)  # (B, K)
-        weights = 1.0 / risk_sum  # (B, K)
-        weights = weights / weights.sum(dim=-1, keepdim=True)  # normalize
-
-        # Weighted sum of attended features
-        weighted_features = torch.bmm(
-            weights.unsqueeze(1),  # (B, 1, K)
-            risk_query  # (B, K, D)
-        )  # (B, 1, D)
-
-        # LSTM trajectory generator
-        lstm_input = weighted_features.expand(-1, T_f, -1)  # (B, T_f, D)
-        lstm_out, _ = self.trajectory_lstm(lstm_input)  # (B, T_f, D)
-
-        # MLP to produce distribution parameters
-        traj_dist = self.trajectory_mlp(lstm_out)  # (B, T_f, 5)
-
-        # Ensure sigma > 0 and rho in (-1, 1)
-        mu_x = traj_dist[:, :, 0]
-        mu_y = traj_dist[:, :, 1]
-        sigma_x = F.softplus(traj_dist[:, :, 2]) + 1e-6
-        sigma_y = F.softplus(traj_dist[:, :, 3]) + 1e-6
-        rho = torch.tanh(traj_dist[:, :, 4])
-
-        traj_dist = torch.stack([mu_x, mu_y, sigma_x, sigma_y, rho], dim=-1)
+        weights = mode_weights[:, :, None, None]
+        mean = (weights * mode_mu).sum(dim=1)
+        centered = mode_mu - mean[:, None, :, :]
+        var_x = (weights.squeeze(-1) * (mode_sigma[..., 0].square() + centered[..., 0].square())).sum(dim=1)
+        var_y = (weights.squeeze(-1) * (mode_sigma[..., 1].square() + centered[..., 1].square())).sum(dim=1)
+        covariance = (
+            weights.squeeze(-1)
+            * (mode_rho * mode_sigma[..., 0] * mode_sigma[..., 1]
+               + centered[..., 0] * centered[..., 1])
+        ).sum(dim=1)
+        sigma_x = torch.sqrt(var_x.clamp(min=1e-12))
+        sigma_y = torch.sqrt(var_y.clamp(min=1e-12))
+        rho = (covariance / (sigma_x * sigma_y).clamp(min=1e-12)).clamp(-0.999, 0.999)
+        traj_dist = torch.stack([mean[..., 0], mean[..., 1], sigma_x, sigma_y, rho], dim=-1)
 
         return traj_dist, risk_field

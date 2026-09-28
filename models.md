@@ -28,7 +28,7 @@ Based on the latest API validation, here is the updated list of active free mode
 ## Specialized & Domain-Specific Models
 
 *   **/model inclusionai/ling-3.0-flash-fin:free**
-    Specifically tuned for financial logic, quantitative reasoning, and complex multi-step workflows.
+    Specifically tuned for financial logic, quantitative reasoning, and complex multi-steows.
 *   **/model inclusionai/ling-3.0-flash-sante:free**
     Tuned for medical knowledge reasoning, clinical safety, and high-rigor evidence retrieval.
 *   **/model nvidia/nemotron-3.5-lightning:free**

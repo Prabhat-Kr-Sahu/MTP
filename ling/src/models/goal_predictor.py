@@ -11,13 +11,17 @@ class GoalPredictor(nn.Module):
     Output: (B, N_v, 4) predicted goals [x, y, vx, vy]
     """
 
-    def __init__(self, d_model: int = 64, hidden_dim: int = 128, dropout: float = 0.1):
+    def __init__(
+        self,
+        d_model: int = 64,
+        hidden_dim: int = 128,
+        dropout: float = 0.1,
+        history_steps: int = 30,
+    ):
         super().__init__()
         self._d_model = d_model
-        # Time-agnostic: mean-pool over T_h then MLP (handles any T_h,
-        # e.g. T_h=5 in unit tests and T_h=30 in full pipeline).
         self.mlp = nn.Sequential(
-            nn.Linear(d_model, hidden_dim),
+            nn.Linear(d_model * history_steps, hidden_dim),
             nn.ReLU(),
             nn.Dropout(dropout),
             nn.Linear(hidden_dim, hidden_dim),
@@ -34,8 +38,7 @@ class GoalPredictor(nn.Module):
             goals: (B, N_v, 4) predicted goals [x, y, vx, vy]
         """
         B, T_h, N_v, D = encoded_neighbors.shape
-        pooled = encoded_neighbors.mean(dim=1)  # (B, N_v, D) temporal mean
-        flat = pooled.reshape(B * N_v, D)
+        flat = encoded_neighbors.transpose(1, 2).reshape(B * N_v, T_h * D)
         goals = self.mlp(flat)  # (B*N_v, 4)
         goals = goals.view(B, N_v, 4)
         return goals

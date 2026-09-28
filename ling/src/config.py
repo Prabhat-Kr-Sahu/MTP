@@ -52,15 +52,15 @@ VAL_RATIO = 0.1
 TEST_RATIO = 0.2
 
 # --- Feature dimensions ---
-# rel_pos(2) + vel(2) + vehicle_type(1) + lane_id(1) + length(1) + width(1)
-# = 8 base + S-field (1) + O-field (1) = 10 total model inputs
-STATE_DIM = 10  # total input features per vehicle per timestep
-BASE_STATE_DIM = 8  # without risk features
+# rel_pos(2) + vel(2) + longitudinal_acceleration(1) + vehicle_type(1)
+# + lane_id(1) + length(1) + width(1) = 9 base + 2 risk features
+STATE_DIM = 11
+BASE_STATE_DIM = 9
 
 # --- Paths ---
-CHECKPOINT_DIR = "checkpoints"
-LOG_DIR = "logs"
-RESULT_DIR = "results"
+CHECKPOINT_DIR = "checkpoints/strap_reproduction_v2"
+LOG_DIR = "logs/strap_reproduction_v2"
+RESULT_DIR = "results/strap_reproduction_v2"
 NORMALIZATION_FILE = "normalization.json"
 INTENTIONS_FILE = "intention_clusters.pkl"
 

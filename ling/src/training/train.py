@@ -30,12 +30,18 @@ def train_one_epoch(model, optimizer, dataloader, device, use_risk_loss=True, be
     num_batches = 0
 
     for batch_idx, batch in enumerate(dataloader):
-        if len(batch) == 4:
+        if len(batch) == 5:
+            states, gt_positions, gt_goals, mask, goal_mask = batch
+            mask = mask.to(device)
+            goal_mask = goal_mask.to(device)
+        elif len(batch) == 4:
             states, gt_positions, gt_goals, mask = batch
             mask = mask.to(device)
+            goal_mask = None
         else:
             states, gt_positions, gt_goals = batch
             mask = None
+            goal_mask = None
 
         states = states.to(device)
         gt_positions = gt_positions.to(device)
@@ -48,10 +54,13 @@ def train_one_epoch(model, optimizer, dataloader, device, use_risk_loss=True, be
         if use_risk_loss:
             loss, gamma, gl, tl = risk_scaled_loss(
                 pred_goals, gt_goals, traj_dist, gt_positions,
-                risk_field, beta
+                risk_field, beta, goal_mask=goal_mask
             )
         else:
-            loss, gl, tl = basic_loss(pred_goals, gt_goals, traj_dist, gt_positions)
+            loss, gl, tl = basic_loss(
+                pred_goals, gt_goals, traj_dist, gt_positions,
+                goal_mask=goal_mask,
+            )
 
         # Backward
         optimizer.zero_grad()
@@ -68,44 +77,72 @@ def train_one_epoch(model, optimizer, dataloader, device, use_risk_loss=True, be
 
 
 def validate(model, dataloader, device, use_risk_loss=True, beta=0.0):
-    """Validate the model."""
+    """Validate the model using sample-weighted per-horizon RMSE."""
     model.eval()
+    squared_error_sum = None
+    sample_count = 0
     total_loss = 0.0
-    total_rmse = 0.0
-    num_samples = 0
+    num_batches = 0
 
     with torch.no_grad():
         for batch in dataloader:
-            if len(batch) == 4:
+            if len(batch) == 5:
+                states, gt_positions, gt_goals, mask, goal_mask = batch
+                mask = mask.to(device)
+                goal_mask = goal_mask.to(device)
+            elif len(batch) == 4:
                 states, gt_positions, gt_goals, mask = batch
                 mask = mask.to(device)
+                goal_mask = None
             else:
                 states, gt_positions, gt_goals = batch
                 mask = None
+                goal_mask = None
 
             states = states.to(device)
             gt_positions = gt_positions.to(device)
             gt_goals = gt_goals.to(device)
 
-            traj_dist, pred_goals, risk_field = model(states, mask)
+            traj_dist, pred_goals, _ = model(states, mask)
 
-            # Compute loss
+            # Compute loss for early stopping
             if use_risk_loss:
                 loss, _, _, _ = risk_scaled_loss(
-                    pred_goals, gt_goals, traj_dist, gt_positions, risk_field, beta
+                    pred_goals, gt_goals, traj_dist, gt_positions,
+                    torch.zeros(1), beta, goal_mask=goal_mask
                 )
             else:
-                loss, _, _ = basic_loss(pred_goals, gt_goals, traj_dist, gt_positions)
-
-            # RMSE at each horizon
-            pred_mu = traj_dist[:, :, :2]  # (B, T_f, 2)
-            rmse = torch.norm(pred_mu - gt_positions, dim=-1).mean().item()
-
+                loss, _, _ = basic_loss(
+                    pred_goals, gt_goals, traj_dist, gt_positions,
+                    goal_mask=goal_mask,
+                )
             total_loss += loss.item()
-            total_rmse += rmse
-            num_samples += 1
+            num_batches += 1
 
-    return total_loss / num_samples, total_rmse / num_samples
+            pred_mu = traj_dist[:, :, :2]  # (B, T_f, 2)
+            squared_displacement = (
+                (pred_mu - gt_positions).square().sum(dim=-1)
+            )  # (B, T_f)
+            batch_sum = squared_displacement.sum(dim=0)  # (T_f,)
+            squared_error_sum = (
+                batch_sum if squared_error_sum is None
+                else squared_error_sum + batch_sum
+            )
+            sample_count += gt_positions.shape[0]
+
+    if sample_count == 0:
+        raise ValueError("Cannot evaluate an empty test dataset")
+
+    horizon_rmse = (squared_error_sum / sample_count).sqrt()  # (T_f,)
+    horizon_indices = [9, 19, 29, 39, 49]
+    horizon_labels = ["1s", "2s", "3s", "4s", "5s"]
+    metrics = {
+        f"rmse_{label}": horizon_rmse[index].item()
+        for label, index in zip(horizon_labels, horizon_indices)
+        if index < len(horizon_rmse)
+    }
+    metrics["rmse_avg"] = float(np.mean(list(metrics.values())))
+    return total_loss / num_batches, metrics
 
 
 def train(
@@ -116,6 +153,7 @@ def train(
     debug: bool = False,
     resume_from: str = None,
     checkpoint_every: int = 2,
+    learning_rate: float = LEARNING_RATE,
 ):
     """Full training loop."""
     os.makedirs(CHECKPOINT_DIR, exist_ok=True)
@@ -123,7 +161,7 @@ def train(
 
     # Optimizer
     optimizer = optim.Adam(
-        model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY
+        model.parameters(), lr=learning_rate, weight_decay=WEIGHT_DECAY
     )
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=LR_DECAY)
 
@@ -174,18 +212,18 @@ def train(
 
     # Apply normalization to train and val samples
     train_samples = [
-        (apply_normalization(s, norm_stats), gt, g, m, vids)
-        for s, gt, g, m, vids in train_samples
+        (apply_normalization(sample[0], norm_stats), *sample[1:])
+        for sample in train_samples
     ]
     val_samples = [
-        (apply_normalization(s, norm_stats), gt, g, m, vids)
-        for s, gt, g, m, vids in val_samples
+        (apply_normalization(sample[0], norm_stats), *sample[1:])
+        for sample in val_samples
     ]
 
     # --- K-means intentions: fit on TRAINING endpoints only ---
     logger.info("[Train] Fitting k-means intention codebook on training data...")
     # build_codebook_from_samples expects (states, gt_pos, gt_goals) tuples
-    codebook_input = [(s, gt, g) for s, gt, g, m, vids in train_samples]
+    codebook_input = [(sample[0], sample[1], sample[2]) for sample in train_samples]
     intention_centers = build_codebook_from_samples(codebook_input, k=100, seed=SEED)
     save_codebook(intention_centers, f"{CHECKPOINT_DIR}/{INTENTIONS_FILE}")
     logger.info(f"[Train] Saved intention codebook ({intention_centers.shape}) to "
@@ -205,9 +243,10 @@ def train(
         train_loss, gl, tl = train_one_epoch(
             model, optimizer, train_dl, DEVICE, use_risk_loss, beta
         )
-        val_loss, val_rmse = validate(
+        val_loss, val_metrics = validate(
             model, val_dl, DEVICE, use_risk_loss, beta
         )
+        val_rmse = val_metrics["rmse_avg"]
 
         scheduler.step()
 
