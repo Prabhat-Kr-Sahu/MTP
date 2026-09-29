@@ -320,3 +320,103 @@ def test_build_scenes_uses_frame_start_for_input_o_field():
             f"input_o_risk={input_o_risk} should be >0 for nearby vehicles "
             f"at frame_start"
         )
+
+
+def test_config_gamma_x_y_greater_than_one():
+    """Paper Eq.1 requires gamma_x > 1 and gamma_y > 1."""
+    from src.config import GAMMA_X, GAMMA_Y
+    assert GAMMA_X > 1.0, f"GAMMA_X={GAMMA_X} must be > 1 per paper Eq.1"
+    assert GAMMA_Y > 1.0, f"GAMMA_Y={GAMMA_Y} must be > 1 per paper Eq.1"
+
+
+def test_normalization_has_11_features():
+    """Normalization stats must have 11 features (9 base + 2 risk) matching STATE_DIM."""
+    import os
+    from src.config import STATE_DIM, NORMALIZATION_FILE
+    from src.data.normalization import load_stats
+
+    norm_path = f"checkpoints/strap_reproduction_v2/{NORMALIZATION_FILE}"
+    if not os.path.exists(norm_path):
+        pytest.skip(f"Normalization file not found at {norm_path}")
+
+    stats = load_stats(norm_path)
+    assert stats["feature_dim"] == STATE_DIM, (
+        f"Normalization feature_dim={stats['feature_dim']} != STATE_DIM={STATE_DIM}"
+    )
+    assert len(stats["mean"]) == STATE_DIM
+    assert len(stats["std"]) == STATE_DIM
+    # No NaN values in stats
+    for i, (m, s) in enumerate(zip(stats["mean"], stats["std"])):
+        assert not (m != m), f"Feature {i} mean is NaN"
+        assert not (s != s), f"Feature {i} std is NaN"
+        assert s > 0, f"Feature {i} std={s} must be > 0"
+
+
+def test_multi_location_loader():
+    """NGSIMDataLoader should support multiple locations via `locations` parameter."""
+    loader = NGSIMDataLoader(locations=["us-101", "i-80"], max_rows=100)
+    assert loader.locations == ["us-101", "i-80"]
+    assert loader.location == "us-101"  # primary for backward compat
+
+    # Single location still works
+    loader2 = NGSIMDataLoader(location="us-101", max_rows=100)
+    assert loader2.locations == ["us-101"]
+
+
+def test_fetch_ngsim_multi_concatenates():
+    """fetch_ngsim_multi should concatenate locations with frame_id offset."""
+    from src.data.loader import fetch_ngsim_multi
+    import pandas as pd
+
+    # Create fake cached data for two locations
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Location 1: frames 0-9, vehicle 1
+        df1 = pd.DataFrame({
+            "vehicle_id": [1] * 10,
+            "frame_id": list(range(10)),
+            "local_x": [0.0] * 10,
+            "local_y": list(range(10)),
+            "v_vel": [1.0] * 10,
+            "v_acc": [0.0] * 10,
+            "v_class": [2] * 10,
+            "v_length": [4.5] * 10,
+            "v_width": [1.8] * 10,
+            "lane_id": [1] * 10,
+            "location": ["us-101"] * 10,
+        })
+        df1.to_csv(f"{tmpdir}/ngsim_us-101.csv", index=False)
+
+        # Location 2: frames 0-9, vehicle 2
+        df2 = pd.DataFrame({
+            "vehicle_id": [2] * 10,
+            "frame_id": list(range(10)),
+            "local_x": [0.0] * 10,
+            "local_y": list(range(10)),
+            "v_vel": [1.0] * 10,
+            "v_acc": [0.0] * 10,
+            "v_class": [2] * 10,
+            "v_length": [4.5] * 10,
+            "v_width": [1.8] * 10,
+            "lane_id": [1] * 10,
+            "location": ["i-80"] * 10,
+        })
+        df2.to_csv(f"{tmpdir}/ngsim_i-80.csv", index=False)
+
+        combined = fetch_ngsim_multi(
+            locations=["us-101", "i-80"],
+            cache_dir=tmpdir,
+            max_rows_per_location=10,
+        )
+
+        assert len(combined) == 20
+        # frame_ids should be offset: first location 0-9, second 10-19
+        assert combined["frame_id"].min() == 0
+        assert combined["frame_id"].max() == 19
+        assert set(combined["vehicle_id"].unique()) == {1, 2}
+        # location column should be preserved
+        assert "location" in combined.columns
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])
