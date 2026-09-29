@@ -7,6 +7,11 @@ INTERIM_DIR = "data/interim"
 PROCESSED_DIR = "data/processed"
 SPLITS_DIR = "data/splits"
 
+# NGSIM locations available via Socrata API (8ect-6jqj)
+# The STRAP paper uses NGSIM (plural locations) to reach 7.7M trajectories.
+# We load us-101 + i-80 (freeway datasets) to better match the paper's scope.
+NGSIM_LOCATIONS = ["us-101", "i-80"]
+
 # --- Temporal ---
 T_H = 3          # history length (seconds)
 T_F = 5          # future prediction horizon (seconds)
@@ -27,16 +32,22 @@ DROPOUT = 0.1
 NUM_HEADS = 4       # multi-head attention heads
 
 # --- Risk Field ---
+# Paper Eq.1 requires gamma_x > 1 and gamma_y > 1.
+# The paper cites [21] (Wang et al. 2022) for risk-field calibration but
+# does not provide exact numeric values in the PDF. We use 1.5 as a
+# documented placeholder that satisfies the constraint.
+# REPRODUCTION ASSUMPTION: gamma values are not recovered from [21];
+# label results accordingly.
 RISK_THRESHOLD = 0.005
-GAMMA_X = 1.0       # S-field longitudinal scaling (TO VERIFY)
-GAMMA_Y = 1.0       # S-field lateral scaling (TO VERIFY)
-ALPHA_X = 2.0       # S-field longitudinal shape factor
-ALPHA_Y = 2.0       # S-field lateral shape factor
-D_STAR = 5.0        # O-field distance scaling factor (TO VERIFY)
-T_STAR = 2.0        # O-field time scaling factor (TO VERIFY)
-BETA_1 = 1.0        # O-field distance shape factor (TO VERIFY)
-BETA_2 = 1.0        # O-field time shape factor (TO VERIFY)
-BETA_LOSS = 0.0     # risk-scaled loss bias term (TO VERIFY)
+GAMMA_X = 1.5       # S-field longitudinal scaling — paper requires > 1
+GAMMA_Y = 1.5       # S-field lateral scaling — paper requires > 1
+ALPHA_X = 2.0       # S-field longitudinal shape factor (paper: >= 2)
+ALPHA_Y = 2.0       # S-field lateral shape factor (paper: >= 2)
+D_STAR = 5.0        # O-field distance scaling factor (reproduction assumption)
+T_STAR = 2.0        # O-field time scaling factor (reproduction assumption)
+BETA_1 = 1.0        # O-field distance shape factor (paper: >= 1)
+BETA_2 = 1.0        # O-field time shape factor (paper: >= 1)
+BETA_LOSS = 0.0     # risk-scaled loss bias term (paper Eq.13; value unspecified)
 
 # --- Training ---
 BATCH_SIZE = 128

@@ -12,7 +12,10 @@ logger = get_logger()
 import torch
 import json
 
-from src.config import DEVICE, CHECKPOINT_DIR, NUM_EPOCHS, LEARNING_RATE, DROPOUT, NORMALIZATION_FILE, INTENTIONS_FILE, LOG_DIR
+from src.config import (
+    DEVICE, CHECKPOINT_DIR, NUM_EPOCHS, LEARNING_RATE, DROPOUT,
+    NORMALIZATION_FILE, INTENTIONS_FILE, LOG_DIR, NGSIM_LOCATIONS,
+)
 from src.models.strap import STRAP
 from src.training.train import train
 from src.evaluation.evaluate import evaluate_trajectory, print_metrics
@@ -37,14 +40,25 @@ def main():
                         help="Risk metric to use for logging collisions (default: min_dist)")
     parser.add_argument("--collision_threshold", type=float, default=2.0,
                         help="Threshold for the collision metric (default: 2.0)")
+    parser.add_argument("--locations", type=str, default=None,
+                        help="Comma-separated NGSIM locations (default: --debug uses us-101, "
+                             "full run uses all configured NGSIM_LOCATIONS)")
     args = parser.parse_args()
 
     use_risk_loss = not args.basic_loss and args.use_risk_loss
     beta = 0.0  # risk-scaled loss bias
 
+    # Resolve which NGSIM locations to load
+    if args.locations:
+        locations = [loc.strip() for loc in args.locations.split(",") if loc.strip()]
+    elif args.debug:
+        locations = ["us-101"]  # small subset for debugging
+    else:
+        locations = NGSIM_LOCATIONS
+
     if args.mode == "prepare":
         max_rows = 50000 if args.debug else None
-        loader = NGSIMDataLoader(location="us-101", max_rows=max_rows)
+        loader = NGSIMDataLoader(locations=locations, max_rows=max_rows)
         loader.fetch()
         train_samples, val_samples, test_samples = loader.get_splits()
         stats = loader.get_dataset_stats()
@@ -103,7 +117,7 @@ def main():
         model.eval()
 
         # Quick sanity check with real data subset
-        loader = NGSIMDataLoader(location='us-101', max_rows=50000)
+        loader = NGSIMDataLoader(locations=locations, max_rows=50000)
         loader.fetch()
         samples = loader.build_samples(max_samples=1)
         if len(samples) > 0:
@@ -140,7 +154,7 @@ def main():
             centers = load_codebook(intent_path)
             model.risk_decoder.set_intentions(torch.from_numpy(centers))
 
-        loader = NGSIMDataLoader(location='us-101', max_rows=None)
+        loader = NGSIMDataLoader(locations=locations, max_rows=None)
         loader.fetch()
         _, _, test_samples = loader.get_splits()
         if norm_stats:
@@ -171,7 +185,7 @@ def main():
             model.risk_decoder.set_intentions(torch.from_numpy(centers))
 
         # Load a scene and predict
-        loader = NGSIMDataLoader(location='us-101', max_rows=50000)
+        loader = NGSIMDataLoader(locations=locations, max_rows=50000)
         loader.fetch()
         samples = loader.build_samples(max_samples=1)
         if len(samples) > 0:
@@ -264,7 +278,7 @@ def main():
         max_rows = 50000 if args.debug else None
         
         logger.info(f"Loading data (debug={args.debug})...")
-        loader = NGSIMDataLoader(location='us-101', max_rows=max_rows)
+        loader = NGSIMDataLoader(locations=locations, max_rows=max_rows)
         loader.fetch()
         _, _, test_samples = loader.get_splits()
         
@@ -420,7 +434,7 @@ def main():
 
         max_rows = 50000 if args.debug else None
         logger.info(f"Loading data (debug={args.debug})...")
-        loader = NGSIMDataLoader(location='us-101', max_rows=max_rows)
+        loader = NGSIMDataLoader(locations=locations, max_rows=max_rows)
         loader.fetch()
         _, _, test_samples = loader.get_splits()
 

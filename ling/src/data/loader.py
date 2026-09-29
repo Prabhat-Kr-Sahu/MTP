@@ -284,6 +284,50 @@ def fetch_ngsim(
     return df
 
 
+def fetch_ngsim_multi(
+    locations: List[str],
+    cache_dir: str = "data/raw/ngsim",
+    page_size: int = _API_PAGE_SIZE,
+    app_token: Optional[str] = None,
+    max_rows_per_location: Optional[int] = None,
+    force_download: bool = False,
+) -> pd.DataFrame:
+    """Fetch NGSIM data for multiple locations and concatenate.
+
+    Each location's ``frame_id`` is offset so that combined data has a
+    monotonic, non-overlapping frame timeline — this lets the temporal
+    split in :class:`NGSIMDataLoader.get_splits` work correctly across
+    locations.
+
+    Args:
+        locations:            List of NGSIM locations, e.g. ['us-101', 'i-80'].
+        cache_dir:            Directory for cached CSV files.
+        page_size:            Rows per API request.
+        app_token:            Optional Socrata application token.
+        max_rows_per_location: Max rows per location (None = all).
+        force_download:       Re-download even if cached.
+
+    Returns:
+        Concatenated DataFrame with offset frame_ids.
+    """
+    frames = []
+    frame_offset = 0
+    for loc in locations:
+        df = fetch_ngsim(
+            location=loc, cache_dir=cache_dir, page_size=page_size,
+            app_token=app_token, max_rows=max_rows_per_location,
+            force_download=force_download,
+        )
+        # Offset frame_ids to prevent overlap across locations
+        df["frame_id"] = df["frame_id"].astype(np.int64) + frame_offset
+        frames.append(df)
+        frame_offset = int(df["frame_id"].max()) + 1
+        logger.info(f"[NGSIMLoader] Concatenated '{loc}': {len(df):,} rows, frame_id offset={frame_offset}")
+    combined = pd.concat(frames, ignore_index=True)
+    logger.info(f"[NGSIMLoader] Combined {len(locations)} locations: {len(combined):,} total rows")
+    return combined
+
+
 # ---------------------------------------------------------------------------
 # Scene construction helpers
 # ---------------------------------------------------------------------------
@@ -369,6 +413,10 @@ class NGSIMDataLoader:
         loader.fetch()                    # download (or load cache)
         scenes = loader.build_scenes()    # list of scene dicts
         samples = loader.build_samples()  # list of (states, gt_pos, gt_goals, mask)
+
+    Multi-location usage::
+
+        loader = NGSIMDataLoader(locations=["us-101", "i-80"], max_rows=500_000)
     """
 
     def __init__(
@@ -383,8 +431,11 @@ class NGSIMDataLoader:
         stride: int = 10,            # sliding-window stride (1 s)
         max_neighbors: int = 15,
         min_vehicle_frames: int = 80,  # skip vehicles with < 8 s of data
+        locations: Optional[List[str]] = None,
     ):
-        self.location = location
+        # Support multi-location; 'locations' takes priority over 'location'
+        self.locations = locations if locations is not None else [location]
+        self.location = self.locations[0]  # primary location for backward compat
         self.data_dir = data_dir
         self.max_rows = max_rows
         self.app_token = app_token
@@ -407,15 +458,24 @@ class NGSIMDataLoader:
         """Download data from the SODA API (or load from cache).
 
         Returns:
-            The full DataFrame for the selected location.
+            The full DataFrame for the selected location(s).
         """
-        self.df = fetch_ngsim(
-            location=self.location,
-            cache_dir=self.data_dir,
-            app_token=self.app_token,
-            max_rows=self.max_rows,
-            force_download=force_download,
-        )
+        if len(self.locations) > 1:
+            self.df = fetch_ngsim_multi(
+                locations=self.locations,
+                cache_dir=self.data_dir,
+                app_token=self.app_token,
+                max_rows_per_location=self.max_rows,
+                force_download=force_download,
+            )
+        else:
+            self.df = fetch_ngsim(
+                location=self.locations[0],
+                cache_dir=self.data_dir,
+                app_token=self.app_token,
+                max_rows=self.max_rows,
+                force_download=force_download,
+            )
         return self.df
 
     # ------------------------------------------------------------------ #
@@ -725,7 +785,7 @@ class NGSIMDataLoader:
 
     def get_dataset_stats(self) -> dict:
         """Return basic dataset statistics."""
-        stats = {"location": self.location, "num_scenes": len(self.scenes)}
+        stats = {"locations": self.locations, "num_scenes": len(self.scenes)}
         if self.df is not None:
             stats.update({
                 "total_rows": len(self.df),
