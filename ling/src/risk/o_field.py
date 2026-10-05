@@ -3,6 +3,20 @@ import torch
 import torch.nn.functional as F
 
 
+def closest_approach(
+    relative_position: torch.Tensor,
+    relative_velocity: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Return minimum future distance and its time for constant relative velocity."""
+    speed_squared = relative_velocity.square().sum(dim=-1)
+    time_to_closest = -(
+        relative_position * relative_velocity
+    ).sum(dim=-1) / speed_squared.clamp(min=1e-12)
+    time_to_closest = time_to_closest.clamp(min=0.0)
+    closest_position = relative_position + time_to_closest.unsqueeze(-1) * relative_velocity
+    return torch.linalg.vector_norm(closest_position, dim=-1), time_to_closest
+
+
 def compute_o_field(
     d_pred: torch.Tensor,
     t_pred: torch.Tensor,
@@ -40,6 +54,7 @@ def compute_o_field_from_trajectories(
     t_star: float = 2.0,
     beta_1: float = 1.0,
     beta_2: float = 1.0,
+    dt: float = 0.1,
 ) -> torch.Tensor:
     """
     Compute O-field from predicted future trajectories.
@@ -64,8 +79,7 @@ def compute_o_field_from_trajectories(
     d_min, _ = torch.min(dist, dim=1)  # (B, N_v)
     t_min_idx = torch.argmin(dist, dim=1).float()  # (B, N_v)
 
-    # Normalize time index to [0, T_f-1] -> approximate time to closest approach
-    t_min = t_min_idx * (T_f * 0.1)  # scale to seconds (assuming DT=0.1)
+    t_min = t_min_idx * dt
 
     return compute_o_field(d_min, t_min, d_star, t_star, beta_1, beta_2)
 

@@ -5,7 +5,7 @@ import sys
 sys.path.insert(0, 'C:/Users/prabh/OneDrive/Desktop/MTP/ling')
 
 from src.risk.s_field import compute_s_field, compute_s_field_batch
-from src.risk.o_field import compute_o_field
+from src.risk.o_field import compute_o_field, closest_approach
 from src.risk.risk_features import compute_risk_field
 
 
@@ -60,6 +60,23 @@ def test_o_field_bounds():
     assert (risk <= 1.0).all()
 
 
+def test_closest_approach_distinguishes_approaching_and_receding():
+    relative_position = torch.tensor([[10.0, 0.0], [10.0, 0.0]])
+    relative_velocity = torch.tensor([[-2.0, 0.0], [2.0, 0.0]])
+
+    min_distance, time_to_closest = closest_approach(
+        relative_position, relative_velocity
+    )
+
+    torch.testing.assert_close(min_distance, torch.tensor([0.0, 10.0]))
+    torch.testing.assert_close(time_to_closest, torch.tensor([5.0, 0.0]))
+    risk = compute_o_field(min_distance, time_to_closest)
+    torch.testing.assert_close(
+        risk,
+        torch.tensor([torch.exp(torch.tensor(-2.5)), torch.exp(torch.tensor(-2.0))]),
+    )
+
+
 def test_risk_field_shape():
     """Risk field computation should produce correct shapes."""
     B, N = 4, 10
@@ -91,6 +108,35 @@ def test_risk_threshold():
     )
     # With very close vehicles, most should be selected
     assert mask.sum(dim=-1).max() > 0
+
+
+def test_risk_selection_uses_s_or_o_and_excludes_self():
+    delta_x = torch.tensor([[0.0, 10.0, 0.5]])
+    delta_y = torch.zeros_like(delta_x)
+    d_pred = torch.tensor([[0.0, 0.1, 100.0]])
+    t_pred = torch.tensor([[0.1, 0.1, 100.0]])
+
+    _, _, selected, _ = compute_risk_field(
+        delta_x, delta_y, d_pred, t_pred, risk_threshold=0.005, max_neighbors=2
+    )
+
+    assert not selected[0, 0]
+    assert selected[0, 1]
+    assert selected[0, 2]
+
+
+def test_risk_selection_falls_back_to_geometric_nearest_neighbor():
+    delta_x = torch.tensor([[0.0, 10.0, 2.0]])
+    delta_y = torch.zeros_like(delta_x)
+    d_pred = torch.full_like(delta_x, 100.0)
+    t_pred = torch.full_like(delta_x, 100.0)
+
+    _, _, selected, count = compute_risk_field(
+        delta_x, delta_y, d_pred, t_pred, risk_threshold=0.005, max_neighbors=2
+    )
+
+    assert selected.tolist() == [[False, False, True]]
+    assert count.tolist() == [1]
 
 
 if __name__ == "__main__":

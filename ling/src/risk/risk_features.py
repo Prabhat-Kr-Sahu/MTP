@@ -1,7 +1,7 @@
 """Risk feature computation and neighborhood selection."""
 import torch
 from src.risk.s_field import compute_s_field
-from src.risk.o_field import compute_o_field
+from src.risk.o_field import compute_o_field, closest_approach
 
 
 def compute_risk_field(
@@ -23,9 +23,12 @@ def compute_risk_field(
     """
     Compute S-field, O-field, and perform risk-aware neighborhood selection.
 
+    Note: delta_x corresponds to frames_data index 0 (LONGITUDINAL / local_y),
+    delta_y corresponds to index 1 (LATERAL / local_x). See _build_frame_matrix.
+
     Args:
-        delta_x: (B, N) relative longitudinal distances to target
-        delta_y: (B, N) relative lateral distances
+        delta_x: (B, N) relative LONGITUDINAL distances to target (frames_data[:, :, 0])
+        delta_y: (B, N) relative LATERAL distances to target (frames_data[:, :, 1])
         d_pred: (B, N) predicted minimum distances
         t_pred: (B, N) predicted times to closest approach
         risk_threshold: vehicles with S or O risk > this are considered interacting
@@ -40,29 +43,19 @@ def compute_risk_field(
     s_field = compute_s_field(delta_x, delta_y, s_gamma_x, s_gamma_y, s_alpha_x, s_alpha_y)
     o_field = compute_o_field(d_pred, t_pred, o_d_star, o_t_star, o_beta_1, o_beta_2)
 
-    # A vehicle is interacting if either risk exceeds threshold
-    # Exclude self (index 0) — self risk is always zero/irrelevant
     interacting = (s_field > risk_threshold) | (o_field > risk_threshold)
-    # Ensure at least the closest vehicle is selected
-    min_dist = torch.sqrt(delta_x ** 2 + delta_y ** 2)
-    closest_idx = torch.argmin(min_dist, dim=-1)
-    batch_indices = torch.arange(delta_x.shape[0], device=delta_x.device)
-    interacting[batch_indices, closest_idx] = True
-
-    # For each sample, select top-k by combined risk
-    combined_risk = s_field + o_field
-    # Mask out non-interacting with very low risk
-    combined_risk = combined_risk.masked_fill(~interacting, -1e9)
-
-    # Select top max_neighbors by risk
-    num_select = min(max_neighbors, N := delta_x.shape[-1])
-    selected_vals, selected_idx = torch.topk(combined_risk, k=num_select, dim=-1)
-
-    # Build boolean mask
+    interacting[:, 0] = False
+    combined_risk = (s_field + o_field).masked_fill(~interacting, -torch.inf)
     B, N = delta_x.shape
     selected_mask = torch.zeros(B, N, dtype=torch.bool, device=delta_x.device)
-    for i in range(B):
-        selected_mask[i, selected_idx[i]] = True
+    num_select = min(max_neighbors, max(0, N - 1))
+    if num_select:
+        selected_values, selected_idx = torch.topk(combined_risk, k=num_select, dim=-1)
+        selected_mask.scatter_(1, selected_idx, torch.isfinite(selected_values))
+        distances = torch.sqrt(delta_x[:, 1:].square() + delta_y[:, 1:].square())
+        for batch_idx in range(B):
+            if not selected_mask[batch_idx].any():
+                selected_mask[batch_idx, distances[batch_idx].argmin() + 1] = True
 
     num_selected = selected_mask.sum(dim=-1)
 
@@ -70,9 +63,9 @@ def compute_risk_field(
 
 
 def build_risk_features(
-    positions: torch.Tensor,  # (B, T_h, N_v+1, 2) relative positions
-    velocities: torch.Tensor,  # (B, T_h, N_v+1, 2)
-    accelerations: torch.Tensor,  # (B, T_h, N_v+1, 2)
+    positions: torch.Tensor,  # (B, T_h, N_v+1, 2) in frames_data layout: index 0 = longitudinal (local_y), index 1 = lateral (local_x)
+    velocities: torch.Tensor,  # (B, T_h, N_v+1, 2) [v_long, v_lat]
+    accelerations: torch.Tensor,  # (B, T_h, N_v+1, 2) [a_long, a_lat]
     dimensions: torch.Tensor,  # (B, T_h, N_v+1, 2) length, width
     vehicle_types: torch.Tensor,  # (B, T_h, N_v+1)
     lane_ids: torch.Tensor,  # (B, T_h, N_v+1)
@@ -83,6 +76,9 @@ def build_risk_features(
 ) -> tuple:
     """
     Build complete risk features for all vehicles in the scene.
+
+    Note: This function is currently unused (dead code). Positions are expected
+    in frames_data layout: index 0 = longitudinal (local_y), index 1 = lateral (local_x).
 
     Returns:
         risk_features: (B, T_h, N_v+1, 2) S-field and O-field per vehicle
@@ -95,23 +91,10 @@ def build_risk_features(
     s_field_all = compute_s_field_batch(positions, s_gamma_x, s_gamma_y, s_alpha_x, s_alpha_y)
     s_field_all[:, :, 0] = 0.0
 
-    # For O-field, use velocity-based prediction of future interaction
-    # Simplified: use relative velocity and distance to estimate collision risk
-    # This is an approximation; full O-field requires goal prediction
     rel_vel = velocities[:, :, 1:, :] - velocities[:, :, 0:1, :]  # (B, T_h, N_v, 2)
     rel_pos = positions[:, :, 1:, :] - positions[:, :, 0:1, :]  # (B, T_h, N_v, 2)
-    speed = torch.norm(rel_vel, dim=-1).clamp(min=1e-6)  # (B, T_h, N_v)
-    dist = torch.norm(rel_pos, dim=-1)  # (B, T_h, N_v)
-    # Time-to-collision approximation: TTC = distance / closing_speed
-    closing_speed = (rel_vel * rel_pos).sum(dim=-1) / speed  # projection
-    ttc = torch.where(
-        closing_speed > 0,
-        dist / closing_speed.clamp(min=1e-6),
-        torch.full_like(dist, 1e6),
-    )
-    d_pred = dist  # current distance as proxy
-
-    o_field_neigh = compute_o_field(d_pred, ttc.abs().clamp(min=0.1))
+    min_distance, time_to_closest = closest_approach(rel_pos, rel_vel)
+    o_field_neigh = compute_o_field(min_distance, time_to_closest.clamp(min=0.1))
 
     # Assemble full (B, T_h, N_v+1) tensors with zero self-risk.
     s_field_padded = s_field_all

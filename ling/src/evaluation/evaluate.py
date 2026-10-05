@@ -18,7 +18,7 @@ def compute_rmse(pred_dist: torch.Tensor, gt_positions: torch.Tensor) -> Dict[st
         dict with RMSE at 1s, 2s, 3s, 4s, 5s and average
     """
     pred_mu = pred_dist[:, :, :2]  # (B, T_f, 2)
-    errors = torch.norm(pred_mu - gt_positions, dim=-1)  # (B, T_f)
+    squared_displacement = (pred_mu - gt_positions).square().sum(dim=-1)
 
     results = {}
     # NGSIM is 10Hz, so timesteps correspond to:
@@ -27,10 +27,10 @@ def compute_rmse(pred_dist: torch.Tensor, gt_positions: torch.Tensor) -> Dict[st
     horizon_labels = ["1s", "2s", "3s", "4s", "5s"]
 
     for label, idx in zip(horizon_labels, horizon_indices):
-        if idx < errors.shape[1]:
-            results[f"rmse_{label}"] = errors[:, idx].mean().item()
+        if idx < squared_displacement.shape[1]:
+            results[f"rmse_{label}"] = squared_displacement[:, idx].mean().sqrt().item()
 
-    results["rmse_avg"] = errors.mean().item()
+    results["rmse_avg"] = float(np.mean(list(results.values())))
     return results
 
 
@@ -81,11 +81,15 @@ def compute_collision_metrics(
 def evaluate_trajectory(model, dataloader, device) -> Dict[str, float]:
     """Full trajectory evaluation."""
     model.eval()
-    all_metrics = []
+    squared_error_sum = None
+    sample_count = 0
 
     with torch.no_grad():
         for batch in dataloader:
-            if len(batch) == 4:
+            if len(batch) == 5:
+                states, gt_positions, _, mask, _ = batch
+                mask = mask.to(device)
+            elif len(batch) == 4:
                 states, gt_positions, _, mask = batch
                 mask = mask.to(device)
             else:
@@ -96,15 +100,29 @@ def evaluate_trajectory(model, dataloader, device) -> Dict[str, float]:
             gt_positions = gt_positions.to(device)
 
             traj_dist, _, _ = model(states, mask)
-            metrics = compute_rmse(traj_dist, gt_positions)
-            all_metrics.append(metrics)
+            squared_displacement = (
+                traj_dist[:, :, :2] - gt_positions
+            ).square().sum(dim=-1)
+            batch_sum = squared_displacement.sum(dim=0)
+            squared_error_sum = (
+                batch_sum if squared_error_sum is None
+                else squared_error_sum + batch_sum
+            )
+            sample_count += gt_positions.shape[0]
 
-    # Average across batches
-    avg_metrics = {}
-    for key in all_metrics[0].keys():
-        avg_metrics[key] = np.mean([m[key] for m in all_metrics])
+    if sample_count == 0:
+        raise ValueError("Cannot evaluate an empty test dataset")
 
-    return avg_metrics
+    horizon_rmse = (squared_error_sum / sample_count).sqrt()
+    horizon_indices = [9, 19, 29, 39, 49]
+    horizon_labels = ["1s", "2s", "3s", "4s", "5s"]
+    metrics = {
+        f"rmse_{label}": horizon_rmse[index].item()
+        for label, index in zip(horizon_labels, horizon_indices)
+        if index < len(horizon_rmse)
+    }
+    metrics["rmse_avg"] = float(np.mean(list(metrics.values())))
+    return metrics
 
 
 def print_metrics(metrics: Dict[str, float], label: str = ""):

@@ -16,10 +16,13 @@ ling/data/raw/ngsim/
 
 # Model checkpoints (large binaries)
 ling/checkpoints/*.pt
+ling/checkpoints/strap_reproduction_v2/
 
 # Logs & results
 ling/logs/
 ling/results/
+ling/logs/strap_reproduction_v2/
+ling/results/strap_reproduction_v2/
 
 # IDE
 .vscode/
@@ -32,3 +35,5 @@ ling/results/
 Thumbs.db
 authtokens.txt
 t.txt
+models.md 
+

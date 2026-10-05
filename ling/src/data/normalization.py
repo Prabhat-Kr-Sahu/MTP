@@ -5,7 +5,7 @@ import torch
 
 
 def compute_normalization_stats(states_list):
-    """Compute per-feature mean/std from TRAINING states only.
+    """Compute per-feature mean/std from TRAINING states only, ignoring NaN.
 
     Args:
         states_list: list of (1, T_h, N_i, F) tensors (N_i may vary).
@@ -18,8 +18,20 @@ def compute_normalization_stats(states_list):
         # s: (1, T_h, N_i, F) → reshape to (-1, F)
         flat.append(s.reshape(-1, s.shape[-1]))
     all_flat = torch.cat(flat, dim=0)  # (total, F)
-    mean = all_flat.mean(dim=0)
-    std = all_flat.std(dim=0).clamp(min=1e-6)
+
+    # Compute mean/std ignoring NaN values
+    mean = torch.zeros(all_flat.shape[-1])
+    std = torch.zeros(all_flat.shape[-1])
+    for i in range(all_flat.shape[-1]):
+        col = all_flat[:, i]
+        valid = col[~torch.isnan(col)]
+        if valid.numel() > 0:
+            mean[i] = valid.mean()
+            std[i] = valid.std().clamp(min=1e-6)
+        else:
+            mean[i] = 0.0
+            std[i] = 1.0
+
     return {"mean": mean.tolist(), "std": std.tolist(), "feature_dim": mean.numel()}
 
 

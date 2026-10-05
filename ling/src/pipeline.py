@@ -12,7 +12,10 @@ logger = get_logger()
 import torch
 import json
 
-from src.config import DEVICE, CHECKPOINT_DIR, NUM_EPOCHS, LEARNING_RATE, DROPOUT, NORMALIZATION_FILE, INTENTIONS_FILE, LOG_DIR
+from src.config import (
+    DEVICE, CHECKPOINT_DIR, NUM_EPOCHS, LEARNING_RATE, DROPOUT,
+    NORMALIZATION_FILE, INTENTIONS_FILE, LOG_DIR, NGSIM_LOCATIONS,
+)
 from src.models.strap import STRAP
 from src.training.train import train
 from src.evaluation.evaluate import evaluate_trajectory, print_metrics
@@ -37,14 +40,25 @@ def main():
                         help="Risk metric to use for logging collisions (default: min_dist)")
     parser.add_argument("--collision_threshold", type=float, default=2.0,
                         help="Threshold for the collision metric (default: 2.0)")
+    parser.add_argument("--locations", type=str, default=None,
+                        help="Comma-separated NGSIM locations (default: --debug uses us-101, "
+                             "full run uses all configured NGSIM_LOCATIONS)")
     args = parser.parse_args()
 
     use_risk_loss = not args.basic_loss and args.use_risk_loss
     beta = 0.0  # risk-scaled loss bias
 
+    # Resolve which NGSIM locations to load
+    if args.locations:
+        locations = [loc.strip() for loc in args.locations.split(",") if loc.strip()]
+    elif args.debug:
+        locations = ["us-101"]  # small subset for debugging
+    else:
+        locations = NGSIM_LOCATIONS
+
     if args.mode == "prepare":
         max_rows = 50000 if args.debug else None
-        loader = NGSIMDataLoader(location="us-101", max_rows=max_rows)
+        loader = NGSIMDataLoader(locations=locations, max_rows=max_rows)
         loader.fetch()
         train_samples, val_samples, test_samples = loader.get_splits()
         stats = loader.get_dataset_stats()
@@ -58,9 +72,9 @@ def main():
         return
 
     # Initialize model
-    # State dimension: relative_pos(2) + vel(2) + type(1) + lane(1)
-    #   + length(1) + width(1) = 8 base + risk(2) = 10 (see generate_synthetic.py)
-    input_dim = 10
+    # State dimension: relative_pos(2) + velocity(2) + acceleration(1)
+    #   + type(1) + lane(1) + dimensions(2) + risk(2) = 11.
+    input_dim = 11
     model = STRAP(
         input_dim=input_dim,
         d_model=64,
@@ -90,6 +104,7 @@ def main():
             debug=args.debug,
             resume_from=args.resume,
             checkpoint_every=args.checkpoint_every,
+            learning_rate=args.lr,
         )
 
         # Print final metrics
@@ -102,7 +117,7 @@ def main():
         model.eval()
 
         # Quick sanity check with real data subset
-        loader = NGSIMDataLoader(location='us-101', max_rows=50000)
+        loader = NGSIMDataLoader(locations=locations, max_rows=50000)
         loader.fetch()
         samples = loader.build_samples(max_samples=1)
         if len(samples) > 0:
@@ -139,13 +154,13 @@ def main():
             centers = load_codebook(intent_path)
             model.risk_decoder.set_intentions(torch.from_numpy(centers))
 
-        loader = NGSIMDataLoader(location='us-101', max_rows=50000)
+        loader = NGSIMDataLoader(locations=locations, max_rows=None)
         loader.fetch()
         _, _, test_samples = loader.get_splits()
         if norm_stats:
             test_samples = [
-                (apply_normalization(s, norm_stats), gt, g, m, vids)
-                for s, gt, g, m, vids in test_samples
+                (apply_normalization(sample[0], norm_stats), *sample[1:])
+                for sample in test_samples
             ]
         test_dl = create_dataloader(test_samples, batch_size=32, shuffle=False)
 
@@ -170,11 +185,11 @@ def main():
             model.risk_decoder.set_intentions(torch.from_numpy(centers))
 
         # Load a scene and predict
-        loader = NGSIMDataLoader(location='us-101', max_rows=50000)
+        loader = NGSIMDataLoader(locations=locations, max_rows=50000)
         loader.fetch()
         samples = loader.build_samples(max_samples=1)
         if len(samples) > 0:
-            states, gt_pos, gt_goals, mask, vehicle_ids = samples[0]
+            states, gt_pos, gt_goals, mask, vehicle_ids, goal_mask, target_origin = samples[0]
             if norm_stats:
                 states = apply_normalization(states, norm_stats)
             states = states.to(DEVICE)
@@ -193,7 +208,7 @@ def main():
         # Evaluate extensible risk metrics
         from src.evaluation.risk_metrics import RiskMetricRegistry
 
-        target_pred_mu = traj_dist[:, :, :2]  # (1, T_f, 2)
+        target_pred_mu = traj_dist[:, :, :2]  # relative to final observed target position
         # gt_pos represents ground-truth future positions (B, T_f, 2) for target
         # Wait, the current create_sample returns gt_pos for the target only.
         # We need the neighbor futures to evaluate collisions.
@@ -263,7 +278,7 @@ def main():
         max_rows = 50000 if args.debug else None
         
         logger.info(f"Loading data (debug={args.debug})...")
-        loader = NGSIMDataLoader(location='us-101', max_rows=max_rows)
+        loader = NGSIMDataLoader(locations=locations, max_rows=max_rows)
         loader.fetch()
         _, _, test_samples = loader.get_splits()
         
@@ -292,7 +307,7 @@ def main():
             f.write(f"Target_Vehicle_ID,Neighbor_Vehicle_ID,{metric_name.upper()}_Value,GT_Collision\n")
             
             for i, sample in enumerate(test_samples):
-                states, gt_pos, gt_goals, mask, vehicle_ids = sample
+                states, gt_pos, gt_goals, mask, vehicle_ids, goal_mask, target_origin = sample
                 target_id = vehicle_ids[0]
                 
                 # Get the corresponding scene for GT neighbor futures
@@ -318,7 +333,7 @@ def main():
                 with torch.no_grad():
                     traj_dist, goals, risk = model(states, mask)
 
-                target_pred_mu = traj_dist[:, :, :2]
+                target_pred_mu = traj_dist[:, :, :2] + target_origin.to(DEVICE).unsqueeze(1)
                 
                 # Approximate neighbor future: pos + vel * t (for predictions)
                 current_neighbor_pos = states[:, -1, 1:, :2]  # (1, N_v, 2)
@@ -419,7 +434,7 @@ def main():
 
         max_rows = 50000 if args.debug else None
         logger.info(f"Loading data (debug={args.debug})...")
-        loader = NGSIMDataLoader(location='us-101', max_rows=max_rows)
+        loader = NGSIMDataLoader(locations=locations, max_rows=max_rows)
         loader.fetch()
         _, _, test_samples = loader.get_splits()
 
@@ -440,7 +455,7 @@ def main():
         gt_computed = False
 
         for i, sample in enumerate(test_samples):
-            states, gt_pos, gt_goals, mask, vehicle_ids = sample
+            states, gt_pos, gt_goals, mask, vehicle_ids, goal_mask, target_origin = sample
 
             scene_idx = test_scene_indices[i]
             scene = loader.scenes[scene_idx]
@@ -462,7 +477,7 @@ def main():
             with torch.no_grad():
                 traj_dist, goals, risk = model(states, mask)
 
-            target_pred_mu = traj_dist[:, :, :2]
+            target_pred_mu = traj_dist[:, :, :2] + target_origin.to(DEVICE).unsqueeze(1)
 
             current_neighbor_pos = states[:, -1, 1:, :2]
             current_neighbor_vel = states[:, -1, 1:, 2:4] * 30.0
