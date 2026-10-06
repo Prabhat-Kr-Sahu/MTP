@@ -1,0 +1,59 @@
+2026-10-05 16:57:04,612 - STRAP - INFO - STRAP model initialized on cuda
+2026-10-05 16:57:04,612 - STRAP - INFO -   Input dim: 11, Hidden dim: 64, Intention modes: 100
+2026-10-05 16:57:04,612 - STRAP - INFO -   Encoder layers: 3, Decoder layers: 2
+2026-10-05 16:57:04,612 - STRAP - INFO -   Mode: STRAP-R (risk-scaled loss)
+2026-10-05 16:57:04,612 - STRAP - INFO -   Total parameters: 528,089
+2026-10-05 16:57:05,293 - STRAP - INFO - Training STRAP on cuda
+2026-10-05 16:57:05,293 - STRAP - INFO - Epochs: 12, Risk Loss: True, Beta: 0.0, Debug: False
+2026-10-05 16:57:05,293 - STRAP - INFO - [NGSIMLoader] Loading cached data from data/raw/ngsim/ngsim_us-101.csv
+2026-10-05 16:57:11,070 - STRAP - INFO - [NGSIMLoader] Concatenated 'us-101': 4,802,933 rows, frame_id offset=10001
+2026-10-05 16:57:11,070 - STRAP - INFO - [NGSIMLoader] Loading cached data from data/raw/ngsim/ngsim_i-80.csv
+2026-10-05 16:57:16,507 - STRAP - INFO - [NGSIMLoader] Concatenated 'i-80': 4,566,387 rows, frame_id offset=21693
+2026-10-05 16:57:16,689 - STRAP - INFO - [NGSIMLoader] Combined 2 locations: 9,369,320 total rows
+2026-10-05 16:57:19,327 - STRAP - INFO - [NGSIMLoader] 3233 vehicles with >=80 frames
+2026-10-05 17:01:16,845 - STRAP - INFO - [NGSIMLoader] Built 567824 scenes
+2026-10-05 17:13:14,490 - STRAP - INFO - [NGSIMLoader] Built 567653 training samples
+2026-10-05 17:13:14,827 - STRAP - INFO - [NGSIMLoader] Temporal split: train=375424 (frames 5-15107), val=70251 (frames 15267-17276), test=111150 (frames 17436-21608)
+2026-10-05 17:13:15,016 - STRAP - INFO - Dataset: rows=9369320, vehicles=3233, frames=21684, frame_range=(5, 21692), samples(train/val/test)=375424/70251/111150
+2026-10-05 17:13:15,016 - STRAP - INFO - [Train] Computing normalization statistics from training data...
+2026-10-05 17:13:29,363 - STRAP - INFO - [Train] Saved normalization stats to checkpoints/strap_reproduction_v2/normalization.json
+2026-10-05 17:13:45,744 - STRAP - INFO - [Train] Fitting k-means intention codebook on training data...
+2026-10-05 17:14:01,457 - STRAP - INFO - [Train] Saved intention codebook ((100, 4)) to checkpoints/strap_reproduction_v2/intention_clusters.pkl
+2026-10-05 17:14:01,478 - STRAP - INFO - [Train] Loaded k-means intentions into model
+2026-10-05 17:14:01,480 - STRAP - INFO - Number of training batches: 2933
+2026-10-05 17:14:01,483 - STRAP - INFO - Number of validation batches: 549
+2026-10-05 17:22:06,083 - STRAP - INFO - Epoch 1/12: Train Loss=173.1352 (goal=91.9329, traj=55.2426), Val Loss=8646340422.9089, Val RMSE=3.3355
+2026-10-05 17:22:06,090 - STRAP - INFO -   -> Saved best checkpoint (val_loss=8646340422.9089)
+2026-10-05 17:30:04,561 - STRAP - INFO - Epoch 2/12: Train Loss=40.8993 (goal=18.6027, traj=14.0830), Val Loss=1755917887.7067, Val RMSE=3.2193
+2026-10-05 17:30:04,569 - STRAP - INFO -   -> Saved best checkpoint (val_loss=1755917887.7067)
+2026-10-05 17:38:03,897 - STRAP - INFO - Epoch 3/12: Train Loss=36.7407 (goal=16.8527, traj=13.3002), Val Loss=51341418.7194, Val RMSE=3.0767
+2026-10-05 17:38:03,905 - STRAP - INFO -   -> Saved best checkpoint (val_loss=51341418.7194)
+2026-10-05 17:46:03,414 - STRAP - INFO - Epoch 4/12: Train Loss=34.8653 (goal=16.0757, traj=12.9730), Val Loss=9543889.2141, Val RMSE=3.0409
+2026-10-05 17:46:03,422 - STRAP - INFO -   -> Saved best checkpoint (val_loss=9543889.2141)
+2026-10-05 17:54:03,878 - STRAP - INFO - Epoch 5/12: Train Loss=33.8578 (goal=15.6360, traj=12.7775), Val Loss=10060622.4401, Val RMSE=3.0185
+2026-10-05 18:02:05,690 - STRAP - INFO - Epoch 6/12: Train Loss=33.3004 (goal=15.3801, traj=12.6568), Val Loss=7960879.4432, Val RMSE=3.0534
+2026-10-05 18:02:05,698 - STRAP - INFO -   -> Saved best checkpoint (val_loss=7960879.4432)
+2026-10-05 18:10:10,281 - STRAP - INFO - Epoch 7/12: Train Loss=32.9510 (goal=15.2122, traj=12.5853), Val Loss=9311474.4325, Val RMSE=3.0695
+2026-10-05 18:18:13,725 - STRAP - INFO - Epoch 8/12: Train Loss=32.7517 (goal=15.1242, traj=12.5299), Val Loss=9094451.8157, Val RMSE=3.0434
+2026-10-05 18:26:16,358 - STRAP - INFO - Epoch 9/12: Train Loss=32.6225 (goal=15.0618, traj=12.4932), Val Loss=8595528.6009, Val RMSE=3.0536
+2026-10-05 18:34:14,003 - STRAP - INFO - Epoch 10/12: Train Loss=32.5667 (goal=15.0346, traj=12.4881), Val Loss=9057467.9424, Val RMSE=3.0846
+2026-10-05 18:42:14,514 - STRAP - INFO - Epoch 11/12: Train Loss=32.5410 (goal=15.0147, traj=12.4767), Val Loss=8939781.0930, Val RMSE=3.0640
+2026-10-05 18:50:21,584 - STRAP - INFO - Epoch 12/12: Train Loss=32.4812 (goal=15.0080, traj=12.4669), Val Loss=8845585.3033, Val RMSE=3.0454
+2026-10-05 18:50:21,635 - STRAP - INFO - Training complete!
+2026-10-05 18:50:27,265 - STRAP - INFO - 
+Training Summary:
+2026-10-05 18:50:27,266 - STRAP - INFO -   Best validation loss seen during training
+2026-10-05 18:50:27,266 - STRAP - INFO -   Final learning rate: 0.000001
+2026-10-05 18:50:28,879 - STRAP - INFO - [NGSIMLoader] Loading cached data from data/raw/ngsim/ngsim_us-101.csv
+2026-10-05 18:50:35,265 - STRAP - INFO - [NGSIMLoader] Concatenated 'us-101': 50,000 rows, frame_id offset=1028
+2026-10-05 18:50:35,265 - STRAP - INFO - [NGSIMLoader] Loading cached data from data/raw/ngsim/ngsim_i-80.csv
+2026-10-05 18:50:41,321 - STRAP - INFO - [NGSIMLoader] Concatenated 'i-80': 50,000 rows, frame_id offset=2871
+2026-10-05 18:50:41,324 - STRAP - INFO - [NGSIMLoader] Combined 2 locations: 100,000 total rows
+2026-10-05 18:50:41,373 - STRAP - INFO - [NGSIMLoader] 47 vehicles with >=80 frames
+2026-10-05 18:50:41,675 - STRAP - INFO - [NGSIMLoader] Built 1 scenes
+2026-10-05 18:50:41,696 - STRAP - INFO - [NGSIMLoader] Built 1 training samples
+2026-10-05 18:50:41,721 - STRAP - INFO - 
+Sanity check output shapes:
+2026-10-05 18:50:41,721 - STRAP - INFO -   Traj dist: torch.Size([1, 50, 5])  (expected: 1x50x5)
+2026-10-05 18:50:41,721 - STRAP - INFO -   Goals: torch.Size([1, 7, 4])  (expected: 1x7x4)
+2026-10-05 18:50:41,722 - STRAP - INFO -   Risk field: torch.Size([1, 100, 2])  (expected: 1x100x2)

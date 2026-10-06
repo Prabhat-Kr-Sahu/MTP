@@ -1,0 +1,37 @@
+2026-10-05 21:58:46,528 - STRAP - INFO - STRAP model initialized on cuda
+2026-10-05 21:58:46,528 - STRAP - INFO -   Input dim: 11, Hidden dim: 64, Intention modes: 100
+2026-10-05 21:58:46,528 - STRAP - INFO -   Encoder layers: 3, Decoder layers: 2
+2026-10-05 21:58:46,528 - STRAP - INFO -   Mode: STRAP-R (risk-scaled loss)
+2026-10-05 21:58:46,528 - STRAP - INFO -   Total parameters: 528,089
+2026-10-05 21:58:46,547 - STRAP - INFO - Loading data (debug=False)...
+2026-10-05 21:58:46,548 - STRAP - INFO - [NGSIMLoader] Loading cached data from data/raw/ngsim/ngsim_us-101.csv
+2026-10-05 21:58:52,104 - STRAP - INFO - [NGSIMLoader] Concatenated 'us-101': 4,802,933 rows, frame_id offset=10001
+2026-10-05 21:58:52,105 - STRAP - INFO - [NGSIMLoader] Loading cached data from data/raw/ngsim/ngsim_i-80.csv
+2026-10-05 21:58:57,375 - STRAP - INFO - [NGSIMLoader] Concatenated 'i-80': 4,566,387 rows, frame_id offset=21693
+2026-10-05 21:58:57,607 - STRAP - INFO - [NGSIMLoader] Combined 2 locations: 9,369,320 total rows
+2026-10-05 21:59:00,248 - STRAP - INFO - [NGSIMLoader] 3233 vehicles with >=80 frames
+2026-10-05 22:02:55,407 - STRAP - INFO - [NGSIMLoader] Built 567824 scenes
+2026-10-05 22:15:27,299 - STRAP - INFO - [NGSIMLoader] Built 567653 training samples
+2026-10-05 22:15:27,630 - STRAP - INFO - [NGSIMLoader] Temporal split: train=375424 (frames 5-15107), val=70251 (frames 15267-17276), test=111150 (frames 17436-21608)
+2026-10-05 22:15:27,695 - STRAP - INFO - Comparing 11 risk metrics: ['min_dist', 'ttc', 'pet', 'thw', 'tet', 'tit', 'drac', 'rd', 'tmd', 's_field', 'o_field']
+2026-10-06 00:32:52,381 - STRAP - INFO - Risk Metric Comparison Report
+2026-10-06 00:32:52,382 - STRAP - INFO - Test samples: 111150, Total pairs: 1641679
+2026-10-06 00:32:52,382 - STRAP - INFO - GT collisions: 157654, GT non-collisions: 1484025
+2026-10-06 00:32:52,382 - STRAP - INFO - 
+2026-10-06 00:32:52,382 - STRAP - INFO - =============================================================================================
+2026-10-06 00:32:52,382 - STRAP - INFO - Metric           Threshold    Dir    TP    FP    FN    TN      Acc     Prec   Recall       F1
+2026-10-06 00:32:52,382 - STRAP - INFO - =============================================================================================
+2026-10-06 00:32:52,382 - STRAP - INFO - min_dist             2.000      <   560   744 157094 1483281   0.9039   0.4294   0.0036   0.0070
+2026-10-06 00:32:52,382 - STRAP - INFO - ttc                  2.000      <    67    88 157587 1483937   0.9040   0.4323   0.0004   0.0008
+2026-10-06 00:32:52,382 - STRAP - INFO - pet                  2.000      <   965  1328 156689 1482697   0.9037   0.4208   0.0061   0.0121
+2026-10-06 00:32:52,382 - STRAP - INFO - thw                  2.000      <  1330 12094 156324 1471931   0.8974   0.0991   0.0084   0.0155
+2026-10-06 00:32:52,382 - STRAP - INFO - tet                  0.500      >     0     0 157654 1484025   0.9040   0.0000   0.0000   0.0000
+2026-10-06 00:32:52,382 - STRAP - INFO - tit                  0.500      >     0     0 157654 1484025   0.9040   0.0000   0.0000   0.0000
+2026-10-06 00:32:52,382 - STRAP - INFO - drac                 3.000      >  3896 76999 153758 1407026   0.8594   0.0482   0.0247   0.0327
+2026-10-06 00:32:52,382 - STRAP - INFO - rd                   3.000      >  1091  4045 156563 1479980   0.9022   0.2124   0.0069   0.0134
+2026-10-06 00:32:52,382 - STRAP - INFO - tmd                  2.000      < 135558 1281092 22096 202933   0.2062   0.0957   0.8598   0.1722
+2026-10-06 00:32:52,382 - STRAP - INFO - s_field              0.005      >   650   894 157004 1483131   0.9038   0.4210   0.0041   0.0082
+2026-10-06 00:32:52,382 - STRAP - INFO - o_field              0.005      >  1624 26735 156030 1457290   0.8887   0.0573   0.0103   0.0175
+2026-10-06 00:32:52,382 - STRAP - INFO - =============================================================================================
+2026-10-06 00:32:52,382 - STRAP - INFO - 
+Comparison report saved to logs/strap_reproduction_v2/metric_comparison.txt
