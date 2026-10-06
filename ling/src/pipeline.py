@@ -429,7 +429,9 @@ def main():
             model.risk_decoder.set_intentions(torch.from_numpy(centers))
 
         from src.evaluation.risk_metrics import RiskMetricRegistry
-        from src.evaluation.collision import collision_metrics_from_labels
+        from src.evaluation.collision import (
+            collision_metrics_from_labels, compute_pr_auc, compute_roc_auc,
+        )
         import numpy as np
 
         max_rows = 50000 if args.debug else None
@@ -451,6 +453,7 @@ def main():
 
         # Pre-compute all predictions and GT labels
         per_metric_pred = {name: [] for name in all_metric_names}
+        per_metric_scores = {name: [] for name in all_metric_names}
         all_gt = []
         gt_computed = False
 
@@ -506,12 +509,16 @@ def main():
                 except Exception:
                     for nv_idx in range(n_eval):
                         per_metric_pred[name].append(0)
+                        per_metric_scores[name].append(
+                            float("-inf") if metric.higher_is_riskier else float("inf")
+                        )
                     continue
 
                 for nv_idx in range(n_eval):
                     val = risk_values[0, nv_idx].item()
                     pred = 1 if metric.is_collision(val) else 0
                     per_metric_pred[name].append(pred)
+                    per_metric_scores[name].append(val)
 
         gt_array = np.array(all_gt)
 
@@ -519,7 +526,9 @@ def main():
         comparison_path = f"{LOG_DIR}/metric_comparison.txt"
         os.makedirs(LOG_DIR, exist_ok=True)
 
-        header = f"{'Metric':<15} {'Threshold':>10} {'Dir':>6} {'TP':>5} {'FP':>5} {'FN':>5} {'TN':>5} {'Acc':>8} {'Prec':>8} {'Recall':>8} {'F1':>8}"
+        header = (f"{'Metric':<15} {'Threshold':>10} {'Dir':>6} {'TP':>5} {'FP':>5} "
+              f"{'FN':>5} {'TN':>5} {'Acc':>8} {'Prec':>8} {'Recall':>8} "
+              f"{'F1':>8} {'FPR':>8} {'PR-AUC':>8} {'ROC-AUC':>8}")
         sep = '=' * len(header)
 
         lines = []
@@ -535,12 +544,22 @@ def main():
             pred_array = np.array(per_metric_pred[name])
             m = collision_metrics_from_labels(pred_array, gt_array)
             metric_instance = RiskMetricRegistry.get(name)
+            pr_auc = compute_pr_auc(
+                per_metric_scores[name], gt_array,
+                higher_is_riskier=metric_instance.higher_is_riskier,
+            )
+            roc_auc = compute_roc_auc(
+                per_metric_scores[name], gt_array,
+                higher_is_riskier=metric_instance.higher_is_riskier,
+            )
             direction = ">" if metric_instance.higher_is_riskier else "<"
             thresh = metric_instance.default_threshold
 
             line = (f"{name:<15} {thresh:>10.3f} {direction:>6} "
                     f"{int(m['tp']):>5} {int(m['fp']):>5} {int(m['fn']):>5} {int(m['tn']):>5} "
-                    f"{m['accuracy']:>8.4f} {m['precision']:>8.4f} {m['recall']:>8.4f} {m['f1']:>8.4f}")
+                    f"{m['accuracy']:>8.4f} {m['precision']:>8.4f} {m['recall']:>8.4f} "
+                    f"{m['f1']:>8.4f} {m['false_alarm_rate']:>8.4f} "
+                    f"{pr_auc:>8.4f} {roc_auc:>8.4f}")
             lines.append(line)
 
         lines.append(sep)

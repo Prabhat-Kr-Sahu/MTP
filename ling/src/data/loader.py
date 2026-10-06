@@ -767,6 +767,12 @@ class NGSIMDataLoader:
                     T_h=self.history_frames,
                     T_f=self.future_frames,
                 )
+                if (
+                    not torch.isfinite(sample[0][:, :, 0]).all()
+                    or not torch.isfinite(sample[1]).all()
+                    or not torch.isfinite(sample[2][sample[5]]).all()
+                ):
+                    continue
                 samples.append(sample)
                 self._sample_scene_indices.append(scene_index)
             except Exception as exc:

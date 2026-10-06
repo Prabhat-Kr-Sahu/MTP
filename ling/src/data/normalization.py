@@ -38,7 +38,7 @@ def compute_normalization_stats(states_list):
 def apply_normalization(states, stats):
     mean = torch.tensor(stats["mean"], dtype=states.dtype, device=states.device)
     std = torch.tensor(stats["std"], dtype=states.dtype, device=states.device)
-    return (states - mean) / std
+    return torch.nan_to_num((states - mean) / std, nan=0.0, posinf=0.0, neginf=0.0)
 
 
 def save_stats(stats, path):

@@ -1,6 +1,7 @@
 """Training pipeline for STRAP."""
 from src.logger import get_logger
 logger = get_logger()
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -9,7 +10,7 @@ import json
 import os
 
 from src.config import (
-    DEVICE, BATCH_SIZE, LEARNING_RATE, NUM_EPOCHS, LR_DECAY,
+    DEVICE, BATCH_SIZE, LEARNING_RATE, NUM_EPOCHS, LR_DECAY, NGSIM_LOCATIONS,
     WEIGHT_DECAY, CHECKPOINT_DIR, LOG_DIR, SEED,
     NORMALIZATION_FILE, INTENTIONS_FILE,
 )
@@ -109,7 +110,7 @@ def validate(model, dataloader, device, use_risk_loss=True, beta=0.0):
             if use_risk_loss:
                 loss, _, _, _ = risk_scaled_loss(
                     pred_goals, gt_goals, traj_dist, gt_positions,
-                    torch.zeros(1), beta, goal_mask=goal_mask
+                    torch.zeros(1, device=device), beta, goal_mask=goal_mask
                 )
             else:
                 loss, _, _ = basic_loss(
@@ -190,8 +191,9 @@ def train(
     logger.info(f"Epochs: {num_epochs}, Risk Loss: {use_risk_loss}, Beta: {beta}, Debug: {debug}")
 
     # Load dataset
-    max_rows = 50000 if debug else None
-    loader = NGSIMDataLoader(location='us-101', max_rows=max_rows)
+    max_rows = 250000 if debug else None
+    locations = ["us-101"] if debug else NGSIM_LOCATIONS
+    loader = NGSIMDataLoader(locations=locations, max_rows=max_rows)
     loader.fetch()
     train_samples, val_samples, test_samples = loader.get_splits(seed=SEED)
     stats = loader.get_dataset_stats()
