@@ -240,12 +240,30 @@ def test_build_samples_keep_history_neighbors_without_future_goal():
     assert not goal_mask[0, 0]
     assert torch.count_nonzero(gt_goals) == 0
     assert torch.isfinite(states).all()
-
     batch = next(iter(create_dataloader(samples, batch_size=1, shuffle=False)))
     assert len(batch) == 5
     assert batch[0].shape == (1, 2, 2, 11)
     assert batch[3].tolist() == [[True, True]]
     assert batch[4].tolist() == [[False]]
+
+
+def test_build_samples_skips_nonfinite_target_future():
+    frames = np.zeros((4, 1, 5), dtype=np.float32)
+    frames[:, 0, 0] = np.arange(4)
+    frames[3, 0, 0] = np.nan
+    loader = NGSIMDataLoader(window_frames=4, history_frames=2, future_frames=2)
+    loader.scenes = [{
+        "vehicle_ids": np.array([1]),
+        "frames": frames,
+        "vehicle_types": np.array([2]),
+        "vehicle_lengths": np.array([4.5]),
+        "vehicle_widths": np.array([1.8]),
+        "lane_ids": np.array([1]),
+        "lane_history": np.ones((4, 1), dtype=np.float32),
+        "future_goal_mask": np.ones(1, dtype=bool),
+    }]
+
+    assert loader.build_samples() == []
 
 
 def test_temporal_splits_have_no_overlapping_windows():

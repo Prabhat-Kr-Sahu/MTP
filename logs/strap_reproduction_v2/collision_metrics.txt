@@ -1,0 +1,12 @@
+Collision Prediction Metrics
+Metric: min_dist, Threshold: 2.0
+========================================
+Total pairs evaluated: 1641679
+True Positives:  560
+False Positives: 744
+False Negatives: 157094
+True Negatives:  1483281
+Accuracy:   0.9039
+Precision:  0.4294
+Recall:     0.0036
+F1 Score:   0.0070

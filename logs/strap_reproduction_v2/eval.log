@@ -1,0 +1,27 @@
+2026-10-05 21:28:31,832 - STRAP - INFO - STRAP model initialized on cuda
+2026-10-05 21:28:31,832 - STRAP - INFO -   Input dim: 11, Hidden dim: 64, Intention modes: 100
+2026-10-05 21:28:31,832 - STRAP - INFO -   Encoder layers: 3, Decoder layers: 2
+2026-10-05 21:28:31,833 - STRAP - INFO -   Mode: STRAP-R (risk-scaled loss)
+2026-10-05 21:28:31,833 - STRAP - INFO -   Total parameters: 528,089
+2026-10-05 21:28:31,849 - STRAP - INFO - Loaded model from checkpoints/strap_reproduction_v2/best_model.pt
+2026-10-05 21:28:31,850 - STRAP - INFO - [NGSIMLoader] Loading cached data from data/raw/ngsim/ngsim_us-101.csv
+2026-10-05 21:28:37,550 - STRAP - INFO - [NGSIMLoader] Concatenated 'us-101': 4,802,933 rows, frame_id offset=10001
+2026-10-05 21:28:37,550 - STRAP - INFO - [NGSIMLoader] Loading cached data from data/raw/ngsim/ngsim_i-80.csv
+2026-10-05 21:28:42,861 - STRAP - INFO - [NGSIMLoader] Concatenated 'i-80': 4,566,387 rows, frame_id offset=21693
+2026-10-05 21:28:43,071 - STRAP - INFO - [NGSIMLoader] Combined 2 locations: 9,369,320 total rows
+2026-10-05 21:28:45,679 - STRAP - INFO - [NGSIMLoader] 3233 vehicles with >=80 frames
+2026-10-05 21:32:45,036 - STRAP - INFO - [NGSIMLoader] Built 567824 scenes
+2026-10-05 21:45:21,133 - STRAP - INFO - [NGSIMLoader] Built 567653 training samples
+2026-10-05 21:45:21,473 - STRAP - INFO - [NGSIMLoader] Temporal split: train=375424 (frames 5-15107), val=70251 (frames 15267-17276), test=111150 (frames 17436-21608)
+2026-10-05 21:46:53,801 - STRAP - INFO - 
+==================================================
+2026-10-05 21:46:53,801 - STRAP - INFO - Metrics NGSIM Test Split
+2026-10-05 21:46:53,801 - STRAP - INFO - ==================================================
+2026-10-05 21:46:53,801 - STRAP - INFO -   rmse_1s: 0.6208
+2026-10-05 21:46:53,801 - STRAP - INFO -   rmse_2s: 1.4755
+2026-10-05 21:46:53,801 - STRAP - INFO -   rmse_3s: 2.5624
+2026-10-05 21:46:53,801 - STRAP - INFO -   rmse_4s: 3.9057
+2026-10-05 21:46:53,801 - STRAP - INFO -   rmse_5s: 5.4941
+2026-10-05 21:46:53,801 - STRAP - INFO -   rmse_avg: 2.8117
+2026-10-05 21:46:53,801 - STRAP - INFO - ==================================================
+
