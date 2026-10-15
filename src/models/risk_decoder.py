@@ -99,14 +99,12 @@ class RiskAttentiveDecoder(nn.Module):
         self,
         target_encoded: torch.Tensor,  # (B, T_h, D)
         neighbor_goals: torch.Tensor,   # (B, N_v, 4)
-        neighbor_risk: torch.Tensor,    # (B, N_v, 2) [S-field, O-field]
         neighbor_mask: torch.Tensor,    # (B, N_v) bool
     ) -> tuple:
         """
         Args:
             target_encoded: (B, T_h, D) encoded target history
             neighbor_goals: (B, N_v, 4) predicted neighbor goals
-            neighbor_risk: (B, N_v, 2) subjective + objective risk
             neighbor_mask: (B, N_v) boolean mask
 
         Returns:

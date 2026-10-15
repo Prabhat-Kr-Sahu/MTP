@@ -2,19 +2,7 @@
 import torch
 import torch.nn as nn
 
-
-class GLU(nn.Module):
-    """Gated Linear Unit."""
-
-    def forward(self, x):
-        """
-        Args:
-            x: (..., 2*D) split into two halves
-        Returns:
-            (..., D) gated output
-        """
-        d = x.shape[-1] // 2
-        return x[..., :d] * torch.sigmoid(x[..., d:])
+from src.models.temporal_encoder import GLU
 
 
 class SpatialEncoder(nn.Module):

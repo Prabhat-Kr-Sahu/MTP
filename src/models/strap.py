@@ -98,15 +98,10 @@ class STRAP(nn.Module):
         # Neighbor goal prediction
         neighbor_goals = self.goal_predictor(neighbor_enc)  # (B, N_v, 4)
 
-        # Neighbor risk features (from input states)
-        # states[:, :, 1:, -2:] contains S-field and O-field placeholders
-        # average over time -> (B, N_v, 2)
-        neighbor_risk = states[:, :, 1:, -2:].mean(dim=1)  # average over time
-
         # Risk-attentive decoding
         neighbor_mask = mask[:, 1:] if mask is not None else None
         traj_dist, risk_field = self.risk_decoder(
-            target_enc, neighbor_goals, neighbor_risk, neighbor_mask
+            target_enc, neighbor_goals, neighbor_mask
         )
 
         return traj_dist, neighbor_goals, risk_field

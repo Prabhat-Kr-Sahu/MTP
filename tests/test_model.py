@@ -54,10 +54,9 @@ def test_risk_decoder_output_shape():
     model = RiskAttentiveDecoder(D, num_heads=4, k_intentions=K, num_decoder_layers=2)
     target_enc = torch.randn(B, T_h, D)
     neighbor_goals = torch.randn(B, 15, 4)
-    neighbor_risk = torch.randn(B, 15, 2)
     mask = torch.ones(B, 15, dtype=torch.bool)
 
-    traj_dist, risk_field = model(target_enc, neighbor_goals, neighbor_risk, mask)
+    traj_dist, risk_field = model(target_enc, neighbor_goals, mask)
     assert traj_dist.shape == (B, 50, 5)  # (B, T_f=50, 5)
     assert risk_field.shape == (B, K, 2)
 
@@ -69,16 +68,15 @@ def test_risk_decoder_ignores_padded_neighbor_goals():
     ).eval()
     target_enc = torch.randn(1, 4, 64)
     neighbor_goals = torch.randn(1, 2, 4)
-    neighbor_risk = torch.randn(1, 2, 2)
     mask = torch.tensor([[True, False]])
 
     baseline_traj, baseline_risk = model(
-        target_enc, neighbor_goals, neighbor_risk, mask
+        target_enc, neighbor_goals, mask
     )
     changed_goals = neighbor_goals.clone()
     changed_goals[:, 1] = 10000
     changed_traj, changed_risk = model(
-        target_enc, changed_goals, neighbor_risk, mask
+        target_enc, changed_goals, mask
     )
 
     torch.testing.assert_close(baseline_risk, changed_risk)
