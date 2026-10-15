@@ -658,26 +658,21 @@ class NGSIMDataLoader:
                         midpoint_lateral[midpoint_positions]
                         - midpoint_lateral[target_position]
                     )
-                    risk_s = np.exp(-(
-                        np.abs(delta_long / GAMMA_X) ** ALPHA_X
-                        + np.abs(delta_lat / GAMMA_Y) ** ALPHA_Y
-                    ))
                     relative_velocity = (
                         midpoint_velocity[midpoint_positions]
                         - midpoint_velocity[target_position]
                     )
-                    time_to_closest = np.maximum(
-                        -(delta_long * relative_velocity)
-                        / np.maximum(relative_velocity ** 2, 1e-12),
-                        0.0,
-                    )
-                    min_distance = np.sqrt(
-                        (delta_long + time_to_closest * relative_velocity) ** 2
-                        + delta_lat ** 2
-                    )
-                    risk_o = np.exp(-((min_distance / D_STAR) ** BETA_1)) * np.exp(
-                        -((time_to_closest / T_STAR) ** BETA_2)
-                    )
+                    rel_pos = torch.from_numpy(np.stack([delta_long, delta_lat], axis=-1))
+                    rel_vel = torch.from_numpy(np.stack(
+                        [relative_velocity, np.zeros_like(relative_velocity)], axis=-1
+                    ))  # NGSIM gives longitudinal speed only
+                    risk_s = compute_s_field(
+                        rel_pos[:, 0], rel_pos[:, 1], GAMMA_X, GAMMA_Y, ALPHA_X, ALPHA_Y
+                    ).numpy()
+                    min_distance, time_to_closest = closest_approach(rel_pos, rel_vel)
+                    risk_o = compute_o_field(
+                        min_distance, time_to_closest, D_STAR, T_STAR, BETA_1, BETA_2
+                    ).numpy()
                     combined_risk = risk_s + risk_o
                     interacting = (risk_s > RISK_THRESHOLD) | (risk_o > RISK_THRESHOLD)
                     if np.any(interacting):
