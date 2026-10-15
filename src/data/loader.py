@@ -33,7 +33,8 @@ from typing import List, Optional, Tuple, Dict
 _API_BASE = "https://data.transportation.gov/resource/8ect-6jqj.json"
 _FT_TO_M = 0.3048  # 1 foot = 0.3048 metres
 
-# Risk-field parameters (from config, used in risk-aware neighbor selection)
+from src.risk.s_field import compute_s_field
+from src.risk.o_field import compute_o_field, closest_approach
 from src.config import (
     ALPHA_X, ALPHA_Y, BETA_1, BETA_2, D_STAR, DATA_DIR, GAMMA_X, GAMMA_Y,
     N_V, RISK_THRESHOLD, T_STAR, TEST_RATIO, TF_STEPS, TH_STEPS, TRAIN_RATIO, VAL_RATIO,
@@ -324,74 +325,132 @@ def fetch_ngsim_multi(
 
 
 # ---------------------------------------------------------------------------
-# Scene construction helpers
+# Sample construction
 # ---------------------------------------------------------------------------
 
-def _build_frame_matrix(df: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray,
-                                                     np.ndarray, np.ndarray,
-                                                     np.ndarray, np.ndarray,
-                                                     np.ndarray]:
-    """Convert a DataFrame subset into aligned numpy arrays indexed by
-    (frame, vehicle).
+def create_sample(scene: dict, target_idx: int = 0, T_h: int = 30, T_f: int = 50):
+    """
+    Create a training sample from a synthetic scene.
 
     Returns:
-        frame_ids    : sorted unique frame IDs
-        vehicle_ids  : sorted unique vehicle IDs
-        positions    : (n_frames, n_vehicles, 2) — [longitudinal, lateral] (metres)
-            frames_data[:, :, 0] = longitudinal (local_y), frames_data[:, :, 1] = lateral (local_x)
-        velocities   : (n_frames, n_vehicles, 2) — [v_longitudinal, v_lateral] (m/s)
-        vehicle_types: (n_vehicles,)
-        vehicle_lengths: (n_vehicles,)  (metres)
-        vehicle_widths : (n_vehicles,)  (metres)
-        lane_ids     : (n_vehicles,) — last-seen lane per vehicle
-        presence     : (n_frames, n_vehicles) bool — True if vehicle present
+        states: (T_h, N_v+1, F) state features
+        target_traj: (T_f, 2) ground truth future positions
+        neighbor_goals: (N_v, 4) ground truth neighbor goals
+        mask: (N_v+1,) boolean mask
     """
-    frame_ids = np.sort(df["frame_id"].unique())
-    vehicle_ids = np.sort(df["vehicle_id"].unique().astype(int))
+    num_vehicles = len(scene["vehicle_ids"])
+    frames = scene["frames"]
 
-    n_frames = len(frame_ids)
-    n_vehicles = len(vehicle_ids)
+    # Target vehicle history and future
+    target_hist = frames[:T_h, target_idx]  # (T_h, 4)
+    target_future = frames[T_h:T_h + T_f, target_idx]  # (T_f, 4)
+    target_origin = torch.from_numpy(target_hist[-1, :2].copy()).float().unsqueeze(0)
 
-    frame_to_idx = {int(f): i for i, f in enumerate(frame_ids)}
-    veh_to_idx = {int(v): i for i, v in enumerate(vehicle_ids)}
+    # Relative coordinates: subtract target position from all vehicles
+    all_hist = frames[:T_h]  # (T_h, num_vehicles, 4)
+    target_pos = all_hist[:, target_idx:target_idx + 1, :2]  # (T_h, 1, 2)
 
-    # Pre-allocate arrays (NaN = missing)
-    positions = np.full((n_frames, n_vehicles, 2), np.nan)
-    vel_arr = np.full((n_frames, n_vehicles), np.nan)
-    acc_arr = np.full((n_frames, n_vehicles), np.nan)
-    presence = np.zeros((n_frames, n_vehicles), dtype=bool)
+    # Relative positions
+    rel_pos = all_hist[:, :, :2] - target_pos  # (T_h, N, 2)
 
-    # Per-vehicle static attributes (take first occurrence)
-    v_types = np.zeros(n_vehicles)
-    v_lengths = np.zeros(n_vehicles)
-    v_widths = np.zeros(n_vehicles)
-    v_lanes = np.zeros(n_vehicles)
+    # Build state features
+    states = []
+    for v in range(num_vehicles):
+        v_rel_pos = torch.from_numpy(rel_pos[:, v]).float()  # (T_h, 2)
+        v_vel = torch.from_numpy(all_hist[:, v, 2:4]).float()  # (T_h, 2)
+        v_type_f = float(scene["vehicle_types"][v]) / 2.0
+        lane_history = scene.get("lane_history")
+        if lane_history is None:
+            v_lane = np.full(T_h, scene["lane_ids"][v], dtype=np.float32)
+        else:
+            v_lane = np.asarray(lane_history[:T_h, v], dtype=np.float32)
+        v_acc = all_hist[:, v, 4:5] if all_hist.shape[-1] > 4 else np.zeros((T_h, 1), dtype=np.float32)
+        v_length_f = float(scene["vehicle_lengths"][v]) / 10.0
+        v_width_f = float(scene["vehicle_widths"][v]) / 3.0
 
-    # Group by vehicle for efficiency
-    for vid, grp in df.groupby("vehicle_id"):
-        vi = veh_to_idx[int(vid)]
-        v_types[vi] = grp["v_class"].iloc[0]
-        v_lengths[vi] = grp["v_length"].iloc[0]
-        v_widths[vi] = grp["v_width"].iloc[0]
-        v_lanes[vi] = grp["lane_id"].iloc[-1]
+        # Simple state: relative pos + abs vel + type + lane + dimensions
+        # Normalize by scene length
+        feat = torch.cat([
+            v_rel_pos,
+            v_vel / 30.0,  # normalize velocity
+            torch.from_numpy(v_acc / 10.0).float(),
+            torch.full((T_h, 1), v_type_f),
+            torch.from_numpy((v_lane / 2.0).reshape(T_h, 1)).float(),
+            torch.full((T_h, 1), v_length_f),
+            torch.full((T_h, 1), v_width_f),
+        ], dim=-1)  # (T_h, 11) including the two risk features
+        states.append(feat)
 
-        for _, row in grp.iterrows():
-            fi = frame_to_idx[int(row["frame_id"])]
-            positions[fi, vi, 0] = row["local_x"]
-            positions[fi, vi, 1] = row["local_y"]
-            vel_arr[fi, vi] = row["v_vel"]
-            acc_arr[fi, vi] = row["v_acc"]
-            presence[fi, vi] = True
+    # Stack: (T_h, N_v+1, F)
+    states = torch.stack(states, dim=1)  # (T_h, N_v+1, F)
 
-    # Frames use [longitudinal, lateral, v_longitudinal, v_lateral, a_longitudinal].
-    frames_data = np.zeros((n_frames, n_vehicles, 5))
-    frames_data[:, :, 0] = positions[:, :, 1]
-    frames_data[:, :, 1] = positions[:, :, 0]
-    frames_data[:, :, 2] = np.nan_to_num(vel_arr, nan=0.0)
-    frames_data[:, :, 4] = np.nan_to_num(acc_arr, nan=0.0)
+    # ------ Compute real S-field and O-field risk features ------
+    # S-field: spatial proximity risk at each timestep
+    rel_pos_t = torch.from_numpy(rel_pos).float()  # (T_h, N, 2)
+    delta_x = rel_pos_t[:, :, 0]  # (T_h, N)
+    delta_y = rel_pos_t[:, :, 1]  # (T_h, N)
+    s_risk = compute_s_field(delta_x, delta_y, GAMMA_X, GAMMA_Y, ALPHA_X, ALPHA_Y)  # (T_h, N)
+    s_risk[:, target_idx] = 0.0  # self-risk = 0
 
-    return (frame_ids, vehicle_ids, frames_data, v_types,
-            v_lengths, v_widths, v_lanes, presence)
+    # O-field: future collision risk approximated via velocity-based TTC
+    vel_all = torch.from_numpy(all_hist[:, :, 2:4]).float()  # (T_h, N, 2)
+    target_vel = vel_all[:, target_idx:target_idx + 1, :]  # (T_h, 1, 2)
+    rel_vel = vel_all - target_vel  # (T_h, N, 2)
+    min_distance, time_to_closest = closest_approach(rel_pos_t, rel_vel)
+    o_risk = compute_o_field(
+        min_distance, time_to_closest.clamp(min=0.1),
+        D_STAR, T_STAR, BETA_1, BETA_2,
+    )
+    o_risk[:, target_idx] = 0.0  # self-risk = 0
+
+    risk_features = torch.stack([s_risk, o_risk], dim=-1)  # (T_h, N, 2)
+    states = torch.cat([states, risk_features], dim=-1)  # (T_h, N_v+1, F+2)
+
+    # Add batch dimension
+    states = states.unsqueeze(0)  # (1, T_h, N_v+1, F)
+
+    # Future labels share a fixed origin at the last observed target position.
+    target_traj = torch.tensor(target_future[:, :2], dtype=torch.float32) - target_origin
+    target_traj = target_traj.unsqueeze(0)  # (1, T_f, 2)
+
+    # Neighbor goals (position + velocity at end of prediction horizon)
+    neighbor_goals = []
+    goal_mask = []
+    future_goal_mask = scene.get("future_goal_mask")
+    for v in range(num_vehicles):
+        if v == target_idx:
+            continue
+        has_future_goal = (
+            bool(future_goal_mask[v]) if future_goal_mask is not None
+            else np.isfinite(frames[T_h + T_f - 1, v, :4]).all()
+        )
+        if has_future_goal:
+            future_pos = frames[T_h + T_f - 1, v, :2]
+            future_vel = frames[T_h + T_f - 1, v, 2:4]
+            goal = torch.cat([
+                torch.from_numpy(future_pos.copy()).float() - target_origin[0],
+                torch.from_numpy(future_vel.copy()).float(),
+            ])
+        else:
+            goal = torch.zeros(4, dtype=torch.float32)
+        neighbor_goals.append(goal)
+        goal_mask.append(has_future_goal)
+    if neighbor_goals:
+        neighbor_goals = torch.stack(neighbor_goals).unsqueeze(0)
+        goal_mask = torch.tensor(
+            [bool(valid) for valid in goal_mask], dtype=torch.bool
+        ).unsqueeze(0)
+    else:
+        neighbor_goals = torch.zeros(1, 0, 4, dtype=torch.float32)
+        goal_mask = torch.zeros(1, 0, dtype=torch.bool)
+
+    # Mask: (1, num_vehicles) — target + neighbors present in this sample
+    mask = torch.ones(1, num_vehicles, dtype=torch.bool)
+    
+    # Keep track of vehicle IDs for logging
+    vehicle_ids = scene["vehicle_ids"]
+
+    return states, target_traj, neighbor_goals, mask, vehicle_ids, goal_mask, target_origin
 
 
 # ---------------------------------------------------------------------------
@@ -400,7 +459,7 @@ def _build_frame_matrix(df: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray,
 
 class NGSIMDataLoader:
     """Load NGSIM data from the Socrata SODA API and produce scene dicts
-    compatible with ``create_sample()`` from ``generate_synthetic.py``.
+    compatible with ``create_sample()``.
 
     Usage::
 
@@ -738,8 +797,7 @@ class NGSIMDataLoader:
         max_samples: Optional[int] = None,
     ) -> List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]:
         """Convert scenes to training-ready (states, gt_pos, gt_goals, mask)
-        tuples, using the same logic as ``create_sample()`` from
-        ``generate_synthetic.py``.
+        tuples, built with ``create_sample()``.
 
         Each returned tuple has:
             states      : (1, T_h, N, F)   float32
@@ -747,8 +805,6 @@ class NGSIMDataLoader:
             gt_goals    : (1, N-1, 4)       float32
             mask        : (1, N)            bool
         """
-        from src.data.generate_synthetic import create_sample
-
         if not self.scenes:
             self.build_scenes(max_scenes=max_samples)
 
@@ -891,16 +947,6 @@ class NGSIMDataLoader:
             'train': [sample_scene_indices[i] for i in train_sample_idx],
             'val': [sample_scene_indices[i] for i in val_sample_idx],
             'test': [sample_scene_indices[i] for i in test_sample_idx],
-        }
-        self._split_sample_indices = {
-            'train': train_sample_idx,
-            'val': val_sample_idx,
-            'test': test_sample_idx,
-        }
-        self._split_frame_ranges = {
-            'train': (min(scene_starts[i] for i in train_sample_idx), max(frame_ends[i] for i in train_sample_idx)) if train_sample_idx else None,
-            'val': (min(scene_starts[i] for i in val_sample_idx), max(frame_ends[i] for i in val_sample_idx)) if val_sample_idx else None,
-            'test': (min(scene_starts[i] for i in test_sample_idx), max(frame_ends[i] for i in test_sample_idx)) if test_sample_idx else None,
         }
         return train, val, test
 

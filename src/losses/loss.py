@@ -1,8 +1,6 @@
 """Loss functions for STRAP: goal loss, trajectory loss, risk-scaled loss."""
 import math
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
 
 
 def gaussian_nll(

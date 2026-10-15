@@ -34,50 +34,6 @@ def compute_rmse(pred_dist: torch.Tensor, gt_positions: torch.Tensor) -> Dict[st
     return results
 
 
-def compute_collision_metrics(
-    pred_dist: torch.Tensor,
-    gt_positions: torch.Tensor,
-    target_positions: torch.Tensor,
-    collision_threshold: float = 2.0,
-) -> Dict[str, float]:
-    """
-    Compute collision-related metrics.
-
-    Args:
-        pred_dist: predicted trajectory distribution
-        gt_positions: ground truth positions
-        target_positions: positions of other vehicles
-        collision_threshold: distance threshold for collision
-
-    Returns:
-        dict with collision metrics
-    """
-    pred_mu = pred_dist[:, :, :2]
-    # Distance between predicted target and other vehicles
-    # Simplified: just compute min distance to target
-    distances = torch.norm(pred_mu - target_positions.unsqueeze(1), dim=-1)
-    min_dist, _ = distances.min(dim=-1)
-
-    predicted_collision = (min_dist < collision_threshold).float()
-    actual_collision = (torch.norm(gt_positions - target_positions.unsqueeze(1), dim=-1).min(dim=-1).values < collision_threshold).float()
-
-    tp = (predicted_collision * actual_collision).sum().item()
-    fp = (predicted_collision * (1 - actual_collision)).sum().item()
-    fn = ((1 - predicted_collision) * actual_collision).sum().item()
-    tn = ((1 - predicted_collision) * (1 - actual_collision)).sum().item()
-
-    precision = tp / (tp + fp + 1e-6)
-    recall = tp / (tp + fn + 1e-6)
-    f1 = 2 * precision * recall / (precision + recall + 1e-6)
-
-    return {
-        "tp": tp, "fp": fp, "fn": fn, "tn": tn,
-        "precision": precision, "recall": recall, "f1": f1,
-        "predicted_collision_rate": predicted_collision.mean().item(),
-        "actual_collision_rate": actual_collision.mean().item(),
-    }
-
-
 def evaluate_trajectory(model, dataloader, device) -> Dict[str, float]:
     """Full trajectory evaluation."""
     model.eval()

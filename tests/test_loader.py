@@ -7,8 +7,7 @@ import pytest
 import torch
 
 from src.data import loader as loader_module
-from src.data.loader import NGSIMDataLoader, create_dataloader
-from src.data.generate_synthetic import create_sample
+from src.data.loader import NGSIMDataLoader, create_dataloader, create_sample
 
 
 def _record(vehicle_id, frame_id, local_x):

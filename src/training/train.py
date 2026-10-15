@@ -3,9 +3,7 @@ from src.logger import get_logger
 logger = get_logger()
 import numpy as np
 import torch
-import torch.nn as nn
 import torch.optim as optim
-from datetime import datetime
 import json
 import os
 
@@ -14,10 +12,10 @@ from src.config import (
     WEIGHT_DECAY, CHECKPOINT_DIR, LOG_DIR, SEED,
     NORMALIZATION_FILE, INTENTIONS_FILE,
 )
-from src.losses.loss import risk_scaled_loss, basic_loss, gaussian_nll
+from src.losses.loss import risk_scaled_loss, basic_loss
 from src.data.loader import NGSIMDataLoader, create_dataloader
 from src.data.normalization import (
-    compute_normalization_stats, apply_normalization, save_stats, load_stats,
+    compute_normalization_stats, apply_normalization, save_stats,
 )
 from src.intentions.kmeans import build_codebook_from_samples, save_codebook
 
