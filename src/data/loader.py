@@ -610,7 +610,6 @@ class NGSIMDataLoader:
                 suffix_masks[frame_index] = running_mask
 
         window_cache = {}
-        frame_start_data_cache = {}
         for target_vehicle_id in eligible_vehicle_ids:
             target_data = vehicle_data[target_vehicle_id]
             target_frames = target_data["frames"]
@@ -639,7 +638,6 @@ class NGSIMDataLoader:
                     midpoint_data = frame_data.get(midpoint_frame)
                     cache_entry = (present_vehicle_ids, midpoint_data)
                     window_cache[frame_start] = cache_entry
-                    frame_start_data_cache[frame_start] = frame_data.get(frame_start)
 
                 present_vehicle_ids, midpoint_data = cache_entry
                 if midpoint_data is None or target_vehicle_id not in present_vehicle_ids:
@@ -696,40 +694,6 @@ class NGSIMDataLoader:
                 scene_vehicle_ids = [target_vehicle_id] + selected_ids
                 num_scene_vehicles = len(scene_vehicle_ids)
 
-                # Compute input O-field using frame_start (observation-time) data only.
-                # Midpoint data (used above for neighbor ranking) is observation-time
-                # relative positions at t=history/2, not future labels.
-                frame_start_data = frame_start_data_cache.get(frame_start)
-                if frame_start_data is not None:
-                    fs_veh_ids, fs_longitudinal, fs_lateral, fs_velocity = frame_start_data
-                    fs_target_pos = np.searchsorted(fs_veh_ids, target_vehicle_id)
-                    fs_delta_long = (
-                        fs_longitudinal[fs_target_pos]
-                        if fs_target_pos < len(fs_veh_ids) else 0.0
-                    )
-                    fs_delta_lat = (
-                        fs_lateral[fs_target_pos]
-                        if fs_target_pos < len(fs_veh_ids) else 0.0
-                    )
-                    fs_rel_vel = (
-                        fs_velocity[fs_target_pos]
-                        if fs_target_pos < len(fs_veh_ids) else 0.0
-                    )
-                    fs_time_to_closest = np.maximum(
-                        -(fs_delta_long * fs_rel_vel)
-                        / np.maximum(fs_rel_vel ** 2, 1e-12),
-                        0.0,
-                    )
-                    fs_min_distance = np.sqrt(
-                        (fs_delta_long + fs_time_to_closest * fs_rel_vel) ** 2
-                        + fs_delta_lat ** 2
-                    )
-                    input_o_risk = np.exp(-((fs_min_distance / D_STAR) ** BETA_1)) * np.exp(
-                        -((fs_time_to_closest / T_STAR) ** BETA_2)
-                    )
-                else:
-                    input_o_risk = 0.0
-
                 frames_array = np.zeros(
                     (window_length, num_scene_vehicles, 5), dtype=np.float32
                 )
@@ -775,7 +739,6 @@ class NGSIMDataLoader:
                     "lane_history": lane_history,
                     "future_goal_mask": future_goal_mask,
                     "frame_id_start": frame_start,
-                    "input_o_risk": float(input_o_risk),
                 })
 
                 if max_scenes is not None and len(scenes) >= max_scenes:

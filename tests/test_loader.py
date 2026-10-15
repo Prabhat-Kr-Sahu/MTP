@@ -283,62 +283,6 @@ def test_temporal_splits_have_no_overlapping_windows():
         assert later_start > earlier_end
 
 
-def test_build_scenes_uses_frame_start_for_input_o_field():
-    """O-field input risk must use frame_start (observation-time) positions,
-    not midpoint_frame (future) positions. Verify by checking that the
-    input_o_risk in each scene is consistent with frame_start data."""
-    rows = []
-    # Vehicle 1 (target) moves forward; vehicle 2 (neighbor) is stationary.
-    # At frame_start (frame 0): target at local_y=0, neighbor at local_y=5 (ahead).
-    # At midpoint (frame 4): target at local_y=20, neighbor at local_y=5 (behind).
-    for frame_id in range(10):
-        rows.append({
-            "vehicle_id": 1,
-            "frame_id": frame_id,
-            "local_x": 10.0,    # lateral: constant
-            "local_y": float(frame_id * 2),  # longitudinal: moving
-            "v_vel": 2.0,
-            "v_acc": 0.0,
-            "v_class": 2,
-            "v_length": 4.5,
-            "v_width": 1.8,
-            "lane_id": 1,
-        })
-    for frame_id in range(10):
-        rows.append({
-            "vehicle_id": 2,
-            "frame_id": frame_id,
-            "local_x": 20.0,    # lateral: constant (5m lateral offset)
-            "local_y": 5.0,     # longitudinal: stationary
-            "v_vel": 0.0,
-            "v_acc": 0.0,
-            "v_class": 2,
-            "v_length": 4.5,
-            "v_width": 1.8,
-            "lane_id": 1,
-        })
-
-    loader = NGSIMDataLoader(
-        window_frames=8, history_frames=4, future_frames=4,
-        stride=4, max_neighbors=5, min_vehicle_frames=8,
-    )
-    loader.df = pd.DataFrame(rows)
-    scenes = loader.build_scenes()
-
-    assert len(scenes) > 0
-    for scene in scenes:
-        input_o_risk = scene["input_o_risk"]
-        assert isinstance(input_o_risk, float)
-        assert 0.0 <= input_o_risk <= 1.0
-        # With the fix, input_o_risk must be based on frame_start positions:
-        # target at (local_y=0, local_x=10) and neighbor at (local_y=5, local_x=20).
-        # The O-field should be non-zero since vehicles are within interaction range.
-        assert input_o_risk > 0.0, (
-            f"input_o_risk={input_o_risk} should be >0 for nearby vehicles "
-            f"at frame_start"
-        )
-
-
 def test_config_gamma_x_y_greater_than_one():
     """Paper Eq.1 requires gamma_x > 1 and gamma_y > 1."""
     from src.config import GAMMA_X, GAMMA_Y
