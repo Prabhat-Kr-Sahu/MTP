@@ -1,8 +1,6 @@
 """Unit tests for risk field computation."""
 import torch
 import pytest
-import sys
-sys.path.insert(0, 'C:/Users/prabh/OneDrive/Desktop/MTP/ling')
 
 from src.risk.s_field import compute_s_field, compute_s_field_batch
 from src.risk.o_field import compute_o_field, closest_approach

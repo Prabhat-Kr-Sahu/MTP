@@ -1,8 +1,6 @@
 """Unit tests for STRAP model architecture."""
 import torch
 import pytest
-import sys
-sys.path.insert(0, 'C:/Users/prabh/OneDrive/Desktop/MTP/ling')
 
 from src.models.motion_encoder import MotionEncoder
 from src.models.spatial_encoder import SpatialEncoder

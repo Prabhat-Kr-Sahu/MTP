@@ -1,10 +1,7 @@
 """Tests for MTP extension modules (intentions, collision, normalization)."""
-import os
-import sys
 import numpy as np
 import torch
 
-sys.path.insert(0, 'C:/Users/prabh/OneDrive/Desktop/MTP/ling')
 
 from src.intentions.kmeans import fit_intention_codebook
 from src.evaluation.collision import (
