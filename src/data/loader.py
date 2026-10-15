@@ -33,8 +33,8 @@ from typing import List, Optional, Tuple, Dict
 _API_BASE = "https://data.transportation.gov/resource/8ect-6jqj.json"
 _FT_TO_M = 0.3048  # 1 foot = 0.3048 metres
 
-from src.risk.s_field import compute_s_field
-from src.risk.o_field import compute_o_field, closest_approach
+from src.risk import compute_s_field
+from src.risk import compute_o_field, closest_approach
 from src.config import (
     ALPHA_X, ALPHA_Y, BETA_1, BETA_2, D_STAR, DATA_DIR, GAMMA_X, GAMMA_Y,
     N_V, RISK_THRESHOLD, T_STAR, TEST_RATIO, TF_STEPS, TH_STEPS, TRAIN_RATIO, VAL_RATIO,

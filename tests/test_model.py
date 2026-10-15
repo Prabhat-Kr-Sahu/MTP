@@ -119,7 +119,7 @@ def test_gaussian_output_constraints():
 
 def test_loss_computation():
     """Loss functions should produce finite values."""
-    from src.losses.loss import goal_loss, trajectory_loss, basic_loss
+    from src.losses import goal_loss, trajectory_loss, basic_loss
 
     B, T_f = 2, 50
     pred_goals = torch.randn(B, 15, 4)
@@ -137,7 +137,7 @@ def test_loss_computation():
 
 def test_risk_scaled_loss():
     """Risk-scaled loss should produce finite values."""
-    from src.losses.loss import risk_scaled_loss
+    from src.losses import risk_scaled_loss
 
     B = 2
     pred_goals = torch.randn(B, 15, 4)
@@ -157,7 +157,7 @@ def test_risk_scaled_loss():
 
 
 def test_goal_loss_ignores_masked_neighbors():
-    from src.losses.loss import goal_loss
+    from src.losses import goal_loss
 
     target = torch.zeros(1, 2, 4)
     mask = torch.tensor([[True, False]])
@@ -168,7 +168,7 @@ def test_goal_loss_ignores_masked_neighbors():
 
 
 def test_risk_scaled_loss_uses_per_sample_weight():
-    from src.losses.loss import basic_loss, risk_scaled_loss
+    from src.losses import basic_loss, risk_scaled_loss
 
     pred_goals = torch.ones(2, 1, 4)
     gt_goals = torch.zeros_like(pred_goals)
@@ -191,7 +191,7 @@ def test_risk_scaled_loss_uses_per_sample_weight():
 
 def test_risk_scaled_loss_no_overflow_for_large_risk():
     """risk_scaled_loss must produce finite gamma even when risk_sum >> 88."""
-    from src.losses.loss import risk_scaled_loss
+    from src.losses import risk_scaled_loss
 
     B = 2
     pred_goals = torch.randn(B, 1, 4)

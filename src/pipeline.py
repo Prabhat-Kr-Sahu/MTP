@@ -17,11 +17,11 @@ from src.config import (
     NORMALIZATION_FILE, INTENTIONS_FILE, LOG_DIR, NGSIM_LOCATIONS,
 )
 from src.models.strap import STRAP
-from src.training.train import train
+from src.train import train
 from src.evaluation.evaluate import evaluate_trajectory, print_metrics
 from src.data.loader import NGSIMDataLoader, create_dataloader
 from src.data.normalization import apply_normalization, load_stats
-from src.intentions.kmeans import load_codebook
+from src.intentions import load_codebook
 
 
 def main():

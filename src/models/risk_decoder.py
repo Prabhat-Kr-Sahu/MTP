@@ -6,8 +6,8 @@ from src.config import (
     GAMMA_X, GAMMA_Y, ALPHA_X, ALPHA_Y,
     D_STAR, T_STAR, BETA_1, BETA_2, DT,
 )
-from src.risk.o_field import closest_approach, compute_o_field
-from src.risk.s_field import compute_s_field
+from src.risk import closest_approach, compute_o_field
+from src.risk import compute_s_field
 
 
 class RiskAttentiveDecoder(nn.Module):

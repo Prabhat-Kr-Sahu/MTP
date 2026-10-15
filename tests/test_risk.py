@@ -2,8 +2,8 @@
 import torch
 import pytest
 
-from src.risk.s_field import compute_s_field
-from src.risk.o_field import compute_o_field, closest_approach
+from src.risk import compute_s_field
+from src.risk import compute_o_field, closest_approach
 
 
 def test_s_field_decreases_with_distance():

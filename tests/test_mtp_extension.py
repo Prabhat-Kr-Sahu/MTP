@@ -3,7 +3,7 @@ import numpy as np
 import torch
 
 
-from src.intentions.kmeans import fit_intention_codebook
+from src.intentions import fit_intention_codebook
 from src.evaluation.collision import (
     collision_metrics_from_labels,
     compute_pr_auc,

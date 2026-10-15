@@ -12,12 +12,12 @@ from src.config import (
     WEIGHT_DECAY, CHECKPOINT_DIR, LOG_DIR, SEED,
     NORMALIZATION_FILE, INTENTIONS_FILE,
 )
-from src.losses.loss import risk_scaled_loss, basic_loss
+from src.losses import risk_scaled_loss, basic_loss
 from src.data.loader import NGSIMDataLoader, create_dataloader
 from src.data.normalization import (
     compute_normalization_stats, apply_normalization, save_stats,
 )
-from src.intentions.kmeans import build_codebook_from_samples, save_codebook
+from src.intentions import build_codebook_from_samples, save_codebook
 
 
 def train_one_epoch(model, optimizer, dataloader, device, use_risk_loss=True, beta=0.0):
