@@ -64,18 +64,17 @@ def load_trained(model):
 
 
 def rollout_pairs(model, sample, norm_stats):
-    """Predicted target trajectory and constant-velocity neighbour futures."""
-    states, _, _, mask, _, _, target_origin = sample
-    if norm_stats:
-        states = apply_normalization(states, norm_stats)
-    states, mask = states.to(DEVICE), mask.to(DEVICE)
+    """Predicted target and constant-velocity neighbour futures, both relative
+    to the target's last observed position (the frame create_sample uses)."""
+    raw_states, _, _, mask, _, _, _ = sample
+    states = apply_normalization(raw_states, norm_stats) if norm_stats else raw_states
     with torch.no_grad():
-        traj_dist, _, _ = model(states, mask)
-    target = traj_dist[:, :, :2] + target_origin.to(DEVICE).unsqueeze(1)
+        traj_dist, _, _ = model(states.to(DEVICE), mask.to(DEVICE))
+    target = traj_dist[:, :, :2]
     T_f = traj_dist.shape[1]
     t = torch.arange(1, T_f + 1, device=DEVICE).view(1, T_f, 1, 1).float() * DT
-    position = states[:, -1, 1:, :2]
-    velocity = states[:, -1, 1:, 2:4] * 30.0  # undo create_sample's /30
+    position = raw_states[:, -1, 1:, :2].to(DEVICE)
+    velocity = raw_states[:, -1, 1:, 2:4].to(DEVICE) * 30.0  # undo create_sample's /30
     return target, position.unsqueeze(1) + velocity.unsqueeze(1) * t
 
 
