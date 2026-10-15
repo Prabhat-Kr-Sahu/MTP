@@ -6,23 +6,12 @@ __pycache__/
 .venv/
 venv/
 
-# Data (large files, don't commit)
-ling/data/
-ling/data/raw/ngsim/
+# Data, checkpoints, logs (large, generated)
 *.csv
 /data/
 /checkpoints/
 /logs/
-
-# Model checkpoints (large binaries)
-ling/checkpoints/*.pt
-ling/checkpoints/strap_reproduction_v2/
-
-# Logs & results
-ling/logs/
-ling/results/
-ling/logs/strap_reproduction_v2/
-ling/results/strap_reproduction_v2/
+/results/
 
 # IDE
 .vscode/
@@ -33,7 +22,11 @@ ling/results/strap_reproduction_v2/
 # OS
 .DS_Store
 Thumbs.db
+
+# Secrets / scratch
 authtokens.txt
 t.txt
-models.md 
 
+# Generated
+graphify-out/
+*.tar.gz
