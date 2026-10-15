@@ -34,15 +34,10 @@ _API_BASE = "https://data.transportation.gov/resource/8ect-6jqj.json"
 _FT_TO_M = 0.3048  # 1 foot = 0.3048 metres
 
 # Risk-field parameters (from config, used in risk-aware neighbor selection)
-from src.config import GAMMA_X as _GAMMA_X
-from src.config import GAMMA_Y as _GAMMA_Y
-from src.config import ALPHA_X as _ALPHA_X
-from src.config import ALPHA_Y as _ALPHA_Y
-from src.config import RISK_THRESHOLD as _RISK_THRESHOLD
-from src.config import D_STAR as _D_STAR
-from src.config import T_STAR as _T_STAR
-from src.config import BETA_1 as _BETA_1
-from src.config import BETA_2 as _BETA_2
+from src.config import (
+    ALPHA_X, ALPHA_Y, BETA_1, BETA_2, D_STAR, DATA_DIR, GAMMA_X, GAMMA_Y,
+    N_V, RISK_THRESHOLD, T_STAR, TEST_RATIO, TF_STEPS, TH_STEPS, TRAIN_RATIO, VAL_RATIO,
+)
 
 # Columns to request from the API (skip arterial-only fields)
 _SELECT_COLS = [
@@ -114,7 +109,7 @@ def _fetch_page(location: str, limit: int, offset: int,
 
 def fetch_ngsim(
     location: str = "us-101",
-    cache_dir: str = "data/raw/ngsim",
+    cache_dir: str = DATA_DIR,
     page_size: int = _API_PAGE_SIZE,
     app_token: Optional[str] = None,
     max_rows: Optional[int] = None,
@@ -286,7 +281,7 @@ def fetch_ngsim(
 
 def fetch_ngsim_multi(
     locations: List[str],
-    cache_dir: str = "data/raw/ngsim",
+    cache_dir: str = DATA_DIR,
     page_size: int = _API_PAGE_SIZE,
     app_token: Optional[str] = None,
     max_rows_per_location: Optional[int] = None,
@@ -422,15 +417,15 @@ class NGSIMDataLoader:
     def __init__(
         self,
         location: str = "us-101",
-        data_dir: str = "data/raw/ngsim",
+        data_dir: str = DATA_DIR,
         max_rows: Optional[int] = None,
         app_token: Optional[str] = None,
-        window_frames: int = 80,     # 8 s at 10 Hz
-        history_frames: int = 30,    # 3 s
-        future_frames: int = 50,     # 5 s
+        window_frames: int = TH_STEPS + TF_STEPS,     # 8 s at 10 Hz
+        history_frames: int = TH_STEPS,    # 3 s
+        future_frames: int = TF_STEPS,     # 5 s
         stride: int = 10,            # sliding-window stride (1 s)
-        max_neighbors: int = 15,
-        min_vehicle_frames: int = 80,  # skip vehicles with < 8 s of data
+        max_neighbors: int = N_V,
+        min_vehicle_frames: int = TH_STEPS + TF_STEPS,  # skip vehicles with < 8 s of data
         locations: Optional[List[str]] = None,
     ):
         # Support multi-location; 'locations' takes priority over 'location'
@@ -607,8 +602,8 @@ class NGSIMDataLoader:
                         - midpoint_lateral[target_position]
                     )
                     risk_s = np.exp(-(
-                        np.abs(delta_long / _GAMMA_X) ** _ALPHA_X
-                        + np.abs(delta_lat / _GAMMA_Y) ** _ALPHA_Y
+                        np.abs(delta_long / GAMMA_X) ** ALPHA_X
+                        + np.abs(delta_lat / GAMMA_Y) ** ALPHA_Y
                     ))
                     relative_velocity = (
                         midpoint_velocity[midpoint_positions]
@@ -623,11 +618,11 @@ class NGSIMDataLoader:
                         (delta_long + time_to_closest * relative_velocity) ** 2
                         + delta_lat ** 2
                     )
-                    risk_o = np.exp(-((min_distance / _D_STAR) ** _BETA_1)) * np.exp(
-                        -((time_to_closest / _T_STAR) ** _BETA_2)
+                    risk_o = np.exp(-((min_distance / D_STAR) ** BETA_1)) * np.exp(
+                        -((time_to_closest / T_STAR) ** BETA_2)
                     )
                     combined_risk = risk_s + risk_o
-                    interacting = (risk_s > _RISK_THRESHOLD) | (risk_o > _RISK_THRESHOLD)
+                    interacting = (risk_s > RISK_THRESHOLD) | (risk_o > RISK_THRESHOLD)
                     if np.any(interacting):
                         ranked_indices = np.argsort(-combined_risk, kind="stable")
                         ranked_indices = ranked_indices[interacting[ranked_indices]]
@@ -670,8 +665,8 @@ class NGSIMDataLoader:
                         (fs_delta_long + fs_time_to_closest * fs_rel_vel) ** 2
                         + fs_delta_lat ** 2
                     )
-                    input_o_risk = np.exp(-((fs_min_distance / _D_STAR) ** _BETA_1)) * np.exp(
-                        -((fs_time_to_closest / _T_STAR) ** _BETA_2)
+                    input_o_risk = np.exp(-((fs_min_distance / D_STAR) ** BETA_1)) * np.exp(
+                        -((fs_time_to_closest / T_STAR) ** BETA_2)
                     )
                 else:
                     input_o_risk = 0.0
@@ -807,10 +802,9 @@ class NGSIMDataLoader:
 
     def get_splits(
         self,
-        train_ratio: float = 0.7,
-        val_ratio: float = 0.1,
-        test_ratio: float = 0.2,
-        seed: int = 42,
+        train_ratio: float = TRAIN_RATIO,
+        val_ratio: float = VAL_RATIO,
+        test_ratio: float = TEST_RATIO,
     ) -> Tuple[list, list, list]:
         """Split samples into train / val / test sets using TEMPORAL splitting.
 

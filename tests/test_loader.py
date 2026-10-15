@@ -350,10 +350,10 @@ def test_config_gamma_x_y_greater_than_one():
 def test_normalization_has_11_features():
     """Normalization stats must have 11 features (9 base + 2 risk) matching STATE_DIM."""
     import os
-    from src.config import STATE_DIM, NORMALIZATION_FILE
+    from src.config import CHECKPOINT_DIR, STATE_DIM, NORMALIZATION_FILE
     from src.data.normalization import load_stats
 
-    norm_path = f"checkpoints/strap_reproduction_v2/{NORMALIZATION_FILE}"
+    norm_path = f"{CHECKPOINT_DIR}/{NORMALIZATION_FILE}"
     if not os.path.exists(norm_path):
         pytest.skip(f"Normalization file not found at {norm_path}")
 

@@ -1,11 +1,11 @@
 """STRAP configuration and hyperparameters."""
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]   # repo root
 
 # --- Dataset ---
-DATASET_NAME = "NGSIM"
-DATA_DIR = "data/raw/ngsim"
-INTERIM_DIR = "data/interim"
-PROCESSED_DIR = "data/processed"
-SPLITS_DIR = "data/splits"
+DATA_DIR = str(ROOT / "data" / "raw" / "ngsim")
+DEBUG_MAX_ROWS = 250_000   # --debug row cap per location
 
 # NGSIM locations available via Socrata API (8ect-6jqj)
 # The STRAP paper uses NGSIM (plural locations) to reach 7.7M trajectories.
@@ -15,7 +15,6 @@ NGSIM_LOCATIONS = ["us-101", "i-80"]
 # --- Temporal ---
 T_H = 3          # history length (seconds)
 T_F = 5          # future prediction horizon (seconds)
-WINDOW_LENGTH = 8  # total window (seconds)
 DT = 0.1         # sampling interval (seconds), NGSIM is typically 10 Hz
 TH_STEPS = int(T_H / DT)   # 30
 TF_STEPS = int(T_F / DT)   # 50
@@ -66,12 +65,10 @@ TEST_RATIO = 0.2
 # rel_pos(2) + vel(2) + longitudinal_acceleration(1) + vehicle_type(1)
 # + lane_id(1) + length(1) + width(1) = 9 base + 2 risk features
 STATE_DIM = 11
-BASE_STATE_DIM = 9
 
 # --- Paths ---
-CHECKPOINT_DIR = "checkpoints/strap_reproduction_v2"
-LOG_DIR = "logs/strap_reproduction_v2"
-RESULT_DIR = "results/strap_reproduction_v2"
+CHECKPOINT_DIR = str(ROOT / "checkpoints" / "strap_reproduction_v2")
+LOG_DIR = str(ROOT / "logs" / "strap_reproduction_v2")
 NORMALIZATION_FILE = "normalization.json"
 INTENTIONS_FILE = "intention_clusters.pkl"
 
@@ -79,12 +76,3 @@ INTENTIONS_FILE = "intention_clusters.pkl"
 import torch
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-
-def get_config():
-    """Return all config as a dict."""
-    import inspect
-    config = {}
-    for name, value in list(globals().items()):
-        if not name.startswith("_") and not inspect.ismodule(value):
-            config[name] = value
-    return config

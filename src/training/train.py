@@ -195,7 +195,7 @@ def train(
     locations = ["us-101"] if debug else NGSIM_LOCATIONS
     loader = NGSIMDataLoader(locations=locations, max_rows=max_rows)
     loader.fetch()
-    train_samples, val_samples, test_samples = loader.get_splits(seed=SEED)
+    train_samples, val_samples, test_samples = loader.get_splits()
     stats = loader.get_dataset_stats()
     logger.info(
         "Dataset: rows=%s, vehicles=%s, frames=%s, frame_range=%s, "

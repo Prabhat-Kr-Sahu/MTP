@@ -6,7 +6,7 @@ from src.models.spatial_encoder import SpatialEncoder
 from src.models.temporal_encoder import TemporalEncoder
 from src.models.goal_predictor import GoalPredictor
 from src.models.risk_decoder import RiskAttentiveDecoder
-from src.config import D, NUM_ENCODER_LAYERS, NUM_DECODER_LAYERS, NUM_HEADS, DROPOUT, TH_STEPS
+from src.config import D, K, NUM_ENCODER_LAYERS, NUM_DECODER_LAYERS, NUM_HEADS, DROPOUT, STATE_DIM, TH_STEPS
 
 
 class STRAP(nn.Module):
@@ -31,13 +31,13 @@ class STRAP(nn.Module):
 
     def __init__(
         self,
-        input_dim: int = 11,  # 9 base state features + 2 risk features
-        d_model: int = 64,
-        num_heads: int = 4,
-        k_intentions: int = 100,
-        num_encoder_layers: int = 3,
-        num_decoder_layers: int = 2,
-        dropout: float = 0.1,
+        input_dim: int = STATE_DIM,  # 9 base state features + 2 risk features
+        d_model: int = D,
+        num_heads: int = NUM_HEADS,
+        k_intentions: int = K,
+        num_encoder_layers: int = NUM_ENCODER_LAYERS,
+        num_decoder_layers: int = NUM_DECODER_LAYERS,
+        dropout: float = DROPOUT,
     ):
         super().__init__()
         self.d_model = d_model
