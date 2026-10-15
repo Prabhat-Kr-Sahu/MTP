@@ -50,3 +50,9 @@ def save_stats(stats, path):
 def load_stats(path):
     with open(path) as f:
         return json.load(f)
+
+
+def normalize_samples(samples, stats):
+    """Apply normalization stats to the states (index 0) of each sample tuple."""
+    return [(apply_normalization(s[0], stats), *s[1:]) for s in samples]
+

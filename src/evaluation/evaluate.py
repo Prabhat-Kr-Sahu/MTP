@@ -3,35 +3,22 @@ from src.logger import get_logger
 logger = get_logger()
 import torch
 import numpy as np
-from typing import Dict, List
+from typing import Dict
 
 
-def compute_rmse(pred_dist: torch.Tensor, gt_positions: torch.Tensor) -> Dict[str, float]:
-    """
-    Compute RMSE at each prediction horizon.
+HORIZON_STEPS = [9, 19, 29, 39, 49]  # 1s..5s at 10 Hz (0-indexed)
 
-    Args:
-        pred_dist: (B, T_f, 5) predicted distribution [mu_x, mu_y, ...]
-        gt_positions: (B, T_f, 2) ground truth positions
 
-    Returns:
-        dict with RMSE at 1s, 2s, 3s, 4s, 5s and average
-    """
-    pred_mu = pred_dist[:, :, :2]  # (B, T_f, 2)
-    squared_displacement = (pred_mu - gt_positions).square().sum(dim=-1)
-
-    results = {}
-    # NGSIM is 10Hz, so timesteps correspond to:
-    # 1s = 10 steps, 2s = 20 steps, etc.
-    horizon_indices = [9, 19, 29, 39, 49]  # 0-indexed
-    horizon_labels = ["1s", "2s", "3s", "4s", "5s"]
-
-    for label, idx in zip(horizon_labels, horizon_indices):
-        if idx < squared_displacement.shape[1]:
-            results[f"rmse_{label}"] = squared_displacement[:, idx].mean().sqrt().item()
-
-    results["rmse_avg"] = float(np.mean(list(results.values())))
-    return results
+def horizon_rmse(squared_error_sum, sample_count):
+    """Per-horizon RMSE from summed squared displacement (T_f,) over sample_count samples."""
+    if sample_count == 0:
+        raise ValueError("Cannot evaluate an empty test dataset")
+    rmse = (squared_error_sum / sample_count).sqrt()
+    metrics = {
+        f"rmse_{s // 10 + 1}s": rmse[s].item() for s in HORIZON_STEPS if s < len(rmse)
+    }
+    metrics["rmse_avg"] = float(np.mean(list(metrics.values())))
+    return metrics
 
 
 def evaluate_trajectory(model, dataloader, device) -> Dict[str, float]:
@@ -42,18 +29,9 @@ def evaluate_trajectory(model, dataloader, device) -> Dict[str, float]:
 
     with torch.no_grad():
         for batch in dataloader:
-            if len(batch) == 5:
-                states, gt_positions, _, mask, _ = batch
-                mask = mask.to(device)
-            elif len(batch) == 4:
-                states, gt_positions, _, mask = batch
-                mask = mask.to(device)
-            else:
-                states, gt_positions, _ = batch
-                mask = None
-            
-            states = states.to(device)
-            gt_positions = gt_positions.to(device)
+            states, gt_positions, _, mask = batch[:4]
+            states, gt_positions = states.to(device), gt_positions.to(device)
+            mask = mask.to(device) if mask is not None else None
 
             traj_dist, _, _ = model(states, mask)
             squared_displacement = (
@@ -66,19 +44,7 @@ def evaluate_trajectory(model, dataloader, device) -> Dict[str, float]:
             )
             sample_count += gt_positions.shape[0]
 
-    if sample_count == 0:
-        raise ValueError("Cannot evaluate an empty test dataset")
-
-    horizon_rmse = (squared_error_sum / sample_count).sqrt()
-    horizon_indices = [9, 19, 29, 39, 49]
-    horizon_labels = ["1s", "2s", "3s", "4s", "5s"]
-    metrics = {
-        f"rmse_{label}": horizon_rmse[index].item()
-        for label, index in zip(horizon_labels, horizon_indices)
-        if index < len(horizon_rmse)
-    }
-    metrics["rmse_avg"] = float(np.mean(list(metrics.values())))
-    return metrics
+    return horizon_rmse(squared_error_sum, sample_count)
 
 
 def print_metrics(metrics: Dict[str, float], label: str = ""):
@@ -89,4 +55,3 @@ def print_metrics(metrics: Dict[str, float], label: str = ""):
     for key, val in metrics.items():
         logger.info(f"  {key}: {val:.4f}")
     logger.info(f"{'='*50}\n")
-

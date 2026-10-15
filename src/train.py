@@ -1,22 +1,22 @@
 """Training pipeline for STRAP."""
 from src.logger import get_logger
 logger = get_logger()
-import numpy as np
 import torch
 import torch.optim as optim
 import json
 import os
 
 from src.config import (
-    DEVICE, BATCH_SIZE, LEARNING_RATE, NUM_EPOCHS, LR_DECAY, NGSIM_LOCATIONS,
+    BETA_LOSS, DEVICE, BATCH_SIZE, LEARNING_RATE, NUM_EPOCHS, LR_DECAY,
     WEIGHT_DECAY, CHECKPOINT_DIR, LOG_DIR, SEED,
     NORMALIZATION_FILE, INTENTIONS_FILE,
 )
 from src.losses import risk_scaled_loss, basic_loss
-from src.data.loader import NGSIMDataLoader, create_dataloader
+from src.data.loader import create_dataloader
 from src.data.normalization import (
-    compute_normalization_stats, apply_normalization, save_stats,
+    compute_normalization_stats, normalize_samples, save_stats,
 )
+from src.evaluation.evaluate import horizon_rmse
 from src.intentions import build_codebook_from_samples, save_codebook
 
 
@@ -29,22 +29,7 @@ def train_one_epoch(model, optimizer, dataloader, device, use_risk_loss=True, be
     num_batches = 0
 
     for batch_idx, batch in enumerate(dataloader):
-        if len(batch) == 5:
-            states, gt_positions, gt_goals, mask, goal_mask = batch
-            mask = mask.to(device)
-            goal_mask = goal_mask.to(device)
-        elif len(batch) == 4:
-            states, gt_positions, gt_goals, mask = batch
-            mask = mask.to(device)
-            goal_mask = None
-        else:
-            states, gt_positions, gt_goals = batch
-            mask = None
-            goal_mask = None
-
-        states = states.to(device)
-        gt_positions = gt_positions.to(device)
-        gt_goals = gt_goals.to(device)
+        states, gt_positions, gt_goals, mask, goal_mask = (t.to(device) for t in batch)
 
         # Forward pass
         traj_dist, pred_goals, risk_field = model(states, mask)
@@ -85,22 +70,7 @@ def validate(model, dataloader, device, use_risk_loss=True, beta=0.0):
 
     with torch.no_grad():
         for batch in dataloader:
-            if len(batch) == 5:
-                states, gt_positions, gt_goals, mask, goal_mask = batch
-                mask = mask.to(device)
-                goal_mask = goal_mask.to(device)
-            elif len(batch) == 4:
-                states, gt_positions, gt_goals, mask = batch
-                mask = mask.to(device)
-                goal_mask = None
-            else:
-                states, gt_positions, gt_goals = batch
-                mask = None
-                goal_mask = None
-
-            states = states.to(device)
-            gt_positions = gt_positions.to(device)
-            gt_goals = gt_goals.to(device)
+            states, gt_positions, gt_goals, mask, goal_mask = (t.to(device) for t in batch)
 
             traj_dist, pred_goals, _ = model(states, mask)
 
@@ -129,27 +99,15 @@ def validate(model, dataloader, device, use_risk_loss=True, beta=0.0):
             )
             sample_count += gt_positions.shape[0]
 
-    if sample_count == 0:
-        raise ValueError("Cannot evaluate an empty test dataset")
-
-    horizon_rmse = (squared_error_sum / sample_count).sqrt()  # (T_f,)
-    horizon_indices = [9, 19, 29, 39, 49]
-    horizon_labels = ["1s", "2s", "3s", "4s", "5s"]
-    metrics = {
-        f"rmse_{label}": horizon_rmse[index].item()
-        for label, index in zip(horizon_labels, horizon_indices)
-        if index < len(horizon_rmse)
-    }
-    metrics["rmse_avg"] = float(np.mean(list(metrics.values())))
-    return total_loss / num_batches, metrics
+    return total_loss / num_batches, horizon_rmse(squared_error_sum, sample_count)
 
 
 def train(
     model,
+    loader,
     num_epochs: int = NUM_EPOCHS,
     use_risk_loss: bool = True,
-    beta: float = 0.0,
-    debug: bool = False,
+    beta: float = BETA_LOSS,
     resume_from: str = None,
     checkpoint_every: int = 2,
     learning_rate: float = LEARNING_RATE,
@@ -186,13 +144,9 @@ def train(
         logger.info(f"Resuming from {resume_from} at epoch {start_epoch + 1}")
 
     logger.info(f"Training STRAP on {DEVICE}")
-    logger.info(f"Epochs: {num_epochs}, Risk Loss: {use_risk_loss}, Beta: {beta}, Debug: {debug}")
+    logger.info(f"Epochs: {num_epochs}, Risk Loss: {use_risk_loss}, Beta: {beta}")
 
     # Load dataset
-    max_rows = 250000 if debug else None
-    locations = ["us-101"] if debug else NGSIM_LOCATIONS
-    loader = NGSIMDataLoader(locations=locations, max_rows=max_rows)
-    loader.fetch()
     train_samples, val_samples, test_samples = loader.get_splits()
     stats = loader.get_dataset_stats()
     logger.info(
@@ -211,14 +165,8 @@ def train(
     logger.info(f"[Train] Saved normalization stats to {CHECKPOINT_DIR}/{NORMALIZATION_FILE}")
 
     # Apply normalization to train and val samples
-    train_samples = [
-        (apply_normalization(sample[0], norm_stats), *sample[1:])
-        for sample in train_samples
-    ]
-    val_samples = [
-        (apply_normalization(sample[0], norm_stats), *sample[1:])
-        for sample in val_samples
-    ]
+    train_samples = normalize_samples(train_samples, norm_stats)
+    val_samples = normalize_samples(val_samples, norm_stats)
 
     # --- K-means intentions: fit on TRAINING endpoints only ---
     logger.info("[Train] Fitting k-means intention codebook on training data...")

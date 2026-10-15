@@ -2,21 +2,7 @@ import numpy as np
 import pytest
 import torch
 
-from src.evaluation.evaluate import compute_rmse, evaluate_trajectory
-
-
-def test_compute_rmse_uses_euclidean_squared_error_and_horizon_average():
-    prediction = torch.zeros(2, 50, 5)
-    target = torch.zeros(2, 50, 2)
-    target[0, 9] = torch.tensor([3.0, 4.0])
-    target[0, 19] = torch.tensor([6.0, 8.0])
-
-    metrics = compute_rmse(prediction, target)
-
-    expected = [np.sqrt(25 / 2), np.sqrt(100 / 2), 0.0, 0.0, 0.0]
-    assert metrics["rmse_1s"] == pytest.approx(expected[0])
-    assert metrics["rmse_2s"] == pytest.approx(expected[1])
-    assert metrics["rmse_avg"] == pytest.approx(np.mean(expected))
+from src.evaluation.evaluate import evaluate_trajectory
 
 
 class _ZeroPredictor:
