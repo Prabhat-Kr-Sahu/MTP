@@ -38,48 +38,29 @@ Output: Bivariate Gaussian (μx, μy, σx, σy, ρ)
 ## Project Structure
 
 ```
-ling/
+MTP/
 ├── src/
-│   ├── config.py              # Hyperparameters and configuration
-│   ├── pipeline.py            # Main entry point (train/eval/predict)
+│   ├── config.py              # Hyperparameters, paths and configuration
+│   ├── pipeline.py            # Entry point: prepare | train | eval | collisions
+│   ├── train.py               # Training loop and validation
+│   ├── losses.py              # Goal loss, trajectory loss, risk-scaled loss
+│   ├── risk.py                # S-field, O-field, closest approach, pairwise distance
+│   ├── intentions.py          # k-means intention modes
+│   ├── logger.py
 │   ├── data/
-│   │   ├── __init__.py
-│   │   ├── loader.py          # NGSIM data loader utilities
-│   │   ├── generate_synthetic.py  # Synthetic data generator for testing
-│   │   └── __init__.py
-│   ├── risk/
-│   │   ├── __init__.py
-│   │   ├── s_field.py         # Subjective spatial proximity risk
-│   │   ├── o_field.py         # Objective future collision risk
-│   │   └── risk_features.py   # Combined risk computation + neighborhood selection
-│   ├── models/
-│   │   ├── __init__.py
-│   │   ├── motion_encoder.py  # FC + ELU + LSTM
-│   │   ├── spatial_encoder.py # MultiHeadAttn + GLU + LayerNorm
-│   │   ├── temporal_encoder.py # PE + MultiHeadAttn + GLU + LayerNorm
-│   │   ├── goal_predictor.py  # MLP for neighbor goal prediction
-│   │   ├── risk_decoder.py    # Risk-attentive feature fusion
-│   │   └── strap.py           # Full STRAP model
-│   ├── losses/
-│   │   ├── __init__.py
-│   │   └── loss.py            # Goal loss, trajectory loss, risk-scaled loss
-│   ├── training/
-│   │   ├── train.py           # Training loop and validation
-│   │   └── __init__.py
+│   │   ├── loader.py          # NGSIM loader, scenes, samples, splits, DataLoader
+│   │   └── normalization.py   # Train-only feature normalization
 │   ├── evaluation/
-│   │   ├── evaluate.py        # RMSE, collision metrics
-│   │   └── __init__.py
-│   └── intentions/
-│       └── kmeans.py          # k-means intention mode generation
+│   │   ├── evaluate.py        # Per-horizon RMSE
+│   │   ├── collision.py       # Collision classification metrics, PR/ROC-AUC
+│   │   └── risk_metrics.py    # METRICS dict of 11 trajectory risk metrics
+│   └── models/                # motion/spatial/temporal encoders, goal predictor,
+│                              # risk decoder, full STRAP model
 ├── tests/
-│   ├── __init__.py
-│   ├── test_risk.py           # Risk field unit tests
-│   └── test_model.py          # Model architecture unit tests
-├── checkpoints/               # Saved model weights
-├── logs/                      # Training logs
-├── results/                   # Evaluation results
-├── plan.md                    # Detailed implementation plan
-├── README.md                  # This file
+├── conftest.py                # Puts the repo root on sys.path for pytest
+├── checkpoints/ data/ logs/ results/   # git-ignored, generated
+├── plan.md  STRAP_REPRODUCTION_PLAN.md
+├── README.md
 └── strap.pdf                  # Original STRAP paper
 ```
 
@@ -87,7 +68,7 @@ ling/
 
 ```bash
 # Navigate to the project directory
-cd C:\Users\prabh\OneDrive\Desktop\MTP\ling
+cd C:\Users\prabh\OneDrive\Desktop\MTP
 
 # Install dependencies (PyTorch 2.5.1+ already installed)
 pip install torch numpy pandas scikit-learn matplotlib pytest
@@ -113,7 +94,7 @@ python src/pipeline.py --mode train
 Training saves `best_model.pt`, `final_model.pt`, `last_checkpoint.pt`, and
 periodic `epoch_<N>.pt` checkpoints. Resume with:
 ```bash
-python src/pipeline.py --mode train --resume checkpoints/last_checkpoint.pt
+python src/pipeline.py --mode train --resume checkpoints/strap_reproduction_v2/last_checkpoint.pt
 ```
 
 ### Train with basic loss (STRAP-B)
@@ -131,14 +112,17 @@ python src/pipeline.py --mode train --debug --epochs 2
 python src/pipeline.py --mode eval
 ```
 
-### Predict
+### Collision evaluation
 ```bash
-python src/pipeline.py --mode predict
+python src/pipeline.py --mode collisions [--collision_metric min_dist] [--collision_threshold 2.0]
 ```
+
+Scores every test target-neighbour pair with all 11 risk metrics in one pass and writes
+`collisions.txt`, `collision_metrics.txt` and `metric_comparison.txt` to the log directory.
 
 ### Run tests
 ```bash
-python -m pytest tests/ -v
+python -m pytest tests -v
 ```
 
 ## Configuration
@@ -164,7 +148,7 @@ All hyperparameters are defined in `src/config.py`:
 
 The implementation is designed for **NGSIM** (Next Generation Simulation) dataset. The paper also evaluates on **HighD**.
 
-Since NGSIM data is not included in this repository, a synthetic data generator (`src/data/generate_synthetic.py`) is provided for testing the full pipeline. Real NGSIM data is downloaded from the Socrata API by `--mode prepare` and cached in `data/raw/ngsim/ngsim_us-101.csv`.
+NGSIM data is downloaded from the Socrata API by `--mode prepare` and cached in `data/raw/ngsim/`.
 
 ## Key Components
 
@@ -188,7 +172,6 @@ Where:
 ## Implementation Notes
 
 - **Parameter verification needed**: Several risk-field parameters (γx, γy, αx, αy, d*, t*, β1, β2, β) are marked as configurable hyperparameters that need verification against the authors' implementation.
-- **NGSIM data**: The current pipeline uses synthetic data. NGSIM data loader requires actual data files.
 - **k-means intentions**: Intention codebook (K=100) should be fitted on training data only.
 - **Normalization**: Train-only normalization statistics should be saved and reused.
 
