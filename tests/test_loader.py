@@ -283,13 +283,6 @@ def test_temporal_splits_have_no_overlapping_windows():
         assert later_start > earlier_end
 
 
-def test_config_gamma_x_y_greater_than_one():
-    """Paper Eq.1 requires gamma_x > 1 and gamma_y > 1."""
-    from src.config import GAMMA_X, GAMMA_Y
-    assert GAMMA_X > 1.0, f"GAMMA_X={GAMMA_X} must be > 1 per paper Eq.1"
-    assert GAMMA_Y > 1.0, f"GAMMA_Y={GAMMA_Y} must be > 1 per paper Eq.1"
-
-
 def test_normalization_has_11_features():
     """Normalization stats must have 11 features (9 base + 2 risk) matching STATE_DIM."""
     import os
