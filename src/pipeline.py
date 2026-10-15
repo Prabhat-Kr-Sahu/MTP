@@ -1,4 +1,4 @@
-"""Main pipeline entry point for STRAP."""
+"""STRAP pipeline entry point: prepare | train | eval | collisions."""
 import argparse
 import os
 import sys
@@ -6,571 +6,243 @@ import sys
 # Allow `python src/pipeline.py` (script dir = src/) and `python -m src.pipeline`.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.logger import get_logger
-logger = get_logger()
-
+import numpy as np
 import torch
-import json
 
 from src.config import (
-    DEVICE, CHECKPOINT_DIR, NUM_EPOCHS, LEARNING_RATE, DROPOUT,
-    NORMALIZATION_FILE, INTENTIONS_FILE, LOG_DIR, NGSIM_LOCATIONS,
+    BETA_LOSS, CHECKPOINT_DIR, DEBUG_MAX_ROWS, DEVICE, DT, INTENTIONS_FILE,
+    LEARNING_RATE, LOG_DIR, NGSIM_LOCATIONS, NORMALIZATION_FILE, NUM_EPOCHS,
 )
-from src.models.strap import STRAP
-from src.train import train
-from src.evaluation.evaluate import evaluate_trajectory, print_metrics
 from src.data.loader import NGSIMDataLoader, create_dataloader
-from src.data.normalization import apply_normalization, load_stats
+from src.data.normalization import apply_normalization, load_stats, normalize_samples
+from src.evaluation.collision import (
+    collision_metrics_from_labels, compute_pr_auc, compute_roc_auc,
+)
+from src.evaluation.evaluate import evaluate_trajectory, print_metrics
+from src.evaluation.risk_metrics import METRICS, is_collision
 from src.intentions import load_codebook
+from src.logger import get_logger
+from src.models.strap import STRAP
+from src.risk import pairwise_distance
+from src.train import train
+
+logger = get_logger()
+
+
+# ----------------------------------------------------------------- helpers
+
+def make_loader(args):
+    """Loader for --locations, or us-101 (debug) / all NGSIM_LOCATIONS."""
+    if args.locations:
+        locations = [loc.strip() for loc in args.locations.split(",") if loc.strip()]
+    else:
+        locations = ["us-101"] if args.debug else NGSIM_LOCATIONS
+    return NGSIMDataLoader(
+        locations=locations, max_rows=DEBUG_MAX_ROWS if args.debug else None
+    )
+
+
+def build_model():
+    model = STRAP().to(DEVICE)
+    n_params = sum(p.numel() for p in model.parameters())
+    logger.info(f"STRAP on {DEVICE}: {n_params:,} parameters")
+    return model
+
+
+def load_trained(model):
+    """Load best checkpoint + intention codebook; return normalization stats."""
+    checkpoint = f"{CHECKPOINT_DIR}/best_model.pt"
+    if not os.path.exists(checkpoint):
+        raise SystemExit(f"No checkpoint at {checkpoint}. Run --mode train first.")
+    model.load_state_dict(torch.load(checkpoint, map_location=DEVICE, weights_only=True))
+    model.eval()
+    intentions = f"{CHECKPOINT_DIR}/{INTENTIONS_FILE}"
+    if os.path.exists(intentions):
+        model.risk_decoder.set_intentions(torch.from_numpy(load_codebook(intentions)))
+    norm_path = f"{CHECKPOINT_DIR}/{NORMALIZATION_FILE}"
+    return load_stats(norm_path) if os.path.exists(norm_path) else None
+
+
+def rollout_pairs(model, sample, norm_stats):
+    """Predicted target trajectory and constant-velocity neighbour futures."""
+    states, _, _, mask, _, _, target_origin = sample
+    if norm_stats:
+        states = apply_normalization(states, norm_stats)
+    states, mask = states.to(DEVICE), mask.to(DEVICE)
+    with torch.no_grad():
+        traj_dist, _, _ = model(states, mask)
+    target = traj_dist[:, :, :2] + target_origin.to(DEVICE).unsqueeze(1)
+    T_f = traj_dist.shape[1]
+    t = torch.arange(1, T_f + 1, device=DEVICE).view(1, T_f, 1, 1).float() * DT
+    position = states[:, -1, 1:, :2]
+    velocity = states[:, -1, 1:, 2:4] * 30.0  # undo create_sample's /30
+    return target, position.unsqueeze(1) + velocity.unsqueeze(1) * t
+
+
+def gt_min_dist(scene, T_h, T_f):
+    """Ground-truth minimum distance target-to-each-neighbour, shape (N_v,)."""
+    future = torch.from_numpy(scene["frames"][T_h:T_h + T_f, :, :2]).float()
+    return pairwise_distance(future[None, :, 0], future[None, :, 1:]).min(dim=1).values[0]
+
+
+def _auc(fn, scores, gt, higher_is_riskier):
+    try:
+        return fn(scores, gt, higher_is_riskier=higher_is_riskier)
+    except ValueError:  # no positive or no negative labels
+        return float("nan")
+
+
+def collision_report(metric_name, threshold, m, n_pairs):
+    return [
+        "Collision Prediction Metrics",
+        f"Metric: {metric_name}, Threshold: {threshold}",
+        "=" * 40,
+        f"Total pairs evaluated: {n_pairs}",
+        f"True Positives:  {int(m['tp'])}",
+        f"False Positives: {int(m['fp'])}",
+        f"False Negatives: {int(m['fn'])}",
+        f"True Negatives:  {int(m['tn'])}",
+        f"Accuracy:   {m['accuracy']:.4f}",
+        f"Precision:  {m['precision']:.4f}",
+        f"Recall:     {m['recall']:.4f}",
+        f"F1 Score:   {m['f1']:.4f}",
+    ]
+
+
+def comparison_report(scores, gt, n_samples):
+    header = (f"{'Metric':<15} {'Threshold':>10} {'Dir':>6} {'TP':>5} {'FP':>5} "
+              f"{'FN':>5} {'TN':>5} {'Acc':>8} {'Prec':>8} {'Recall':>8} "
+              f"{'F1':>8} {'FPR':>8} {'PR-AUC':>8} {'ROC-AUC':>8}")
+    sep = "=" * len(header)
+    lines = [
+        "Risk Metric Comparison Report",
+        f"Test samples: {n_samples}, Total pairs: {len(gt)}",
+        f"GT collisions: {int(gt.sum())}, GT non-collisions: {int((1 - gt).sum())}",
+        "", sep, header, sep,
+    ]
+    for name, (_, higher, default) in METRICS.items():
+        pred = np.array([is_collision(name, v) for v in scores[name]], dtype=int)
+        m = collision_metrics_from_labels(pred, gt)
+        pr = _auc(compute_pr_auc, scores[name], gt, higher)
+        roc = _auc(compute_roc_auc, scores[name], gt, higher)
+        lines.append(
+            f"{name:<15} {default:>10.3f} {'>' if higher else '<':>6} "
+            f"{int(m['tp']):>5} {int(m['fp']):>5} {int(m['fn']):>5} {int(m['tn']):>5} "
+            f"{m['accuracy']:>8.4f} {m['precision']:>8.4f} {m['recall']:>8.4f} "
+            f"{m['f1']:>8.4f} {m['false_alarm_rate']:>8.4f} {pr:>8.4f} {roc:>8.4f}"
+        )
+    lines.append(sep)
+    return lines
+
+
+def _write(path, lines):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        f.write("\n".join(lines) + "\n")
+    logger.info(f"Saved {path}")
+
+
+# ------------------------------------------------------------------- modes
+
+def cmd_prepare(args):
+    loader = make_loader(args)
+    train_s, val_s, test_s = loader.get_splits()
+    stats = loader.get_dataset_stats()
+    logger.info(
+        "Dataset prepared: rows=%s, vehicles=%s, frames=%s, frame_range=%s, "
+        "samples(train/val/test)=%s/%s/%s",
+        stats.get("total_rows", 0), stats.get("unique_vehicles", 0),
+        stats.get("num_frames", 0), stats.get("frame_range", "N/A"),
+        len(train_s), len(val_s), len(test_s),
+    )
+
+
+def cmd_train(args):
+    use_risk_loss = not args.basic_loss
+    logger.info("Mode: " + ("STRAP-R (risk-scaled loss)" if use_risk_loss else "STRAP-B (basic loss)"))
+    train(
+        build_model(), make_loader(args),
+        num_epochs=args.epochs, use_risk_loss=use_risk_loss, beta=BETA_LOSS,
+        resume_from=args.resume, checkpoint_every=args.checkpoint_every,
+        learning_rate=args.lr,
+    )
+
+
+def cmd_eval(args):
+    model = build_model()
+    norm_stats = load_trained(model)
+    _, _, test_samples = make_loader(args).get_splits()
+    if norm_stats:
+        test_samples = normalize_samples(test_samples, norm_stats)
+    test_dl = create_dataloader(test_samples, batch_size=32, shuffle=False)
+    print_metrics(evaluate_trajectory(model, test_dl, DEVICE), label="NGSIM Test Split")
+
+
+def cmd_collisions(args):
+    """Score every test target-neighbour pair with all METRICS in one pass."""
+    model = build_model()
+    norm_stats = load_trained(model)
+    loader = make_loader(args)
+    _, _, test_samples = loader.get_splits()
+    if not test_samples:
+        raise SystemExit("No test samples available.")
+    scene_indices = loader._split_indices["test"]
+    T_h, T_f = loader.history_frames, loader.future_frames
+    threshold, chosen = args.collision_threshold, args.collision_metric
+
+    scores = {name: [] for name in METRICS}
+    gt_labels, pairs = [], []
+    for i, sample in enumerate(test_samples):
+        target, neighbors = rollout_pairs(model, sample, norm_stats)
+        gt_d = gt_min_dist(loader.scenes[scene_indices[i]], T_h, T_f)
+        n_eval = min(neighbors.shape[2], gt_d.shape[0])
+        for name, (fn, _, _) in METRICS.items():
+            scores[name].extend(fn(target, neighbors, dt=DT, threshold=threshold)[0, :n_eval].tolist())
+        gt_labels.extend((gt_d[:n_eval] < threshold).int().tolist())
+        vehicle_ids = sample[4]
+        pairs.extend((vehicle_ids[0], vehicle_ids[j + 1]) for j in range(n_eval))
+        if (i + 1) % 100 == 0:
+            logger.info(f"Processed {i + 1}/{len(test_samples)} samples...")
+    gt = np.array(gt_labels)
+
+    # Per-pair log and confusion matrix for the chosen metric.
+    pred = [int(is_collision(chosen, v, threshold)) for v in scores[chosen]]
+    rows = [f"Target_Vehicle_ID,Neighbor_Vehicle_ID,{chosen.upper()}_Value,GT_Collision"]
+    rows += [
+        f"{t},{n},{v:.3f},{g}"
+        for (t, n), v, p, g in zip(pairs, scores[chosen], pred, gt_labels) if p or g
+    ]
+    _write(f"{LOG_DIR}/collisions.txt", rows)
+    report = collision_report(chosen, threshold, collision_metrics_from_labels(pred, gt), len(gt))
+    for line in report:
+        logger.info(line)
+    _write(f"{LOG_DIR}/collision_metrics.txt", report)
+
+    comparison = comparison_report(scores, gt, len(test_samples))
+    for line in comparison:
+        logger.info(line)
+    _write(f"{LOG_DIR}/metric_comparison.txt", comparison)
+
+
+MODES = {"prepare": cmd_prepare, "train": cmd_train, "eval": cmd_eval, "collisions": cmd_collisions}
 
 
 def main():
     parser = argparse.ArgumentParser(description="STRAP Trajectory Prediction Pipeline")
-    parser.add_argument("--mode", type=str, default="train", choices=["prepare", "train", "eval", "predict", "log_collisions", "compare_metrics"])
-    parser.add_argument("--debug", action="store_true", help="Use small dataset for debugging")
-    parser.add_argument("--use_risk_loss", action="store_true", default=True, help="Use risk-scaled loss (STRAP-R)")
-    parser.add_argument("--basic_loss", action="store_true", help="Use basic loss (STRAP-B)")
+    parser.add_argument("--mode", default="train", choices=list(MODES))
+    parser.add_argument("--debug", action="store_true", help="Small us-101 subset")
+    parser.add_argument("--basic_loss", action="store_true", help="STRAP-B (no risk-scaled loss)")
     parser.add_argument("--epochs", type=int, default=NUM_EPOCHS)
     parser.add_argument("--lr", type=float, default=LEARNING_RATE)
-    parser.add_argument("--resume", type=str, default=None, help="Checkpoint path to resume training from")
-    parser.add_argument("--checkpoint-every", type=int, default=2, help="Save periodic checkpoints every N epochs")
-    parser.add_argument("--risk_metrics", type=str, default="ttc,min_dist",
-                        help="Comma-separated list of risk metrics to evaluate in predict mode")
-    parser.add_argument("--collision_metric", type=str, default="min_dist",
-                        help="Risk metric to use for logging collisions (default: min_dist)")
+    parser.add_argument("--resume", default=None, help="Checkpoint path to resume training from")
+    parser.add_argument("--checkpoint-every", type=int, default=2, help="Save epoch_N.pt every N epochs")
+    parser.add_argument("--collision_metric", default="min_dist", choices=list(METRICS))
     parser.add_argument("--collision_threshold", type=float, default=2.0,
-                        help="Threshold for the collision metric (default: 2.0)")
-    parser.add_argument("--locations", type=str, default=None,
-                        help="Comma-separated NGSIM locations (default: --debug uses us-101, "
-                             "full run uses all configured NGSIM_LOCATIONS)")
+                        help="Distance (m) for GT collision labels and the chosen metric")
+    parser.add_argument("--locations", default=None, help="Comma-separated NGSIM locations")
     args = parser.parse_args()
+    MODES[args.mode](args)
 
-    use_risk_loss = not args.basic_loss and args.use_risk_loss
-    beta = 0.0  # risk-scaled loss bias
-
-    # Resolve which NGSIM locations to load
-    if args.locations:
-        locations = [loc.strip() for loc in args.locations.split(",") if loc.strip()]
-    elif args.debug:
-        locations = ["us-101"]  # small subset for debugging
-    else:
-        locations = NGSIM_LOCATIONS
-
-    if args.mode == "prepare":
-        max_rows = 50000 if args.debug else None
-        loader = NGSIMDataLoader(locations=locations, max_rows=max_rows)
-        loader.fetch()
-        train_samples, val_samples, test_samples = loader.get_splits()
-        stats = loader.get_dataset_stats()
-        logger.info(
-            "Dataset prepared: rows=%s, vehicles=%s, frames=%s, frame_range=%s, "
-            "samples(train/val/test)=%s/%s/%s",
-            stats.get("total_rows", 0), stats.get("unique_vehicles", 0),
-            stats.get("num_frames", 0), stats.get("frame_range", "N/A"),
-            len(train_samples), len(val_samples), len(test_samples),
-        )
-        return
-
-    # Initialize model
-    # State dimension: relative_pos(2) + velocity(2) + acceleration(1)
-    #   + type(1) + lane(1) + dimensions(2) + risk(2) = 11.
-    input_dim = 11
-    model = STRAP(
-        input_dim=input_dim,
-        d_model=64,
-        num_heads=4,
-        k_intentions=100,
-        num_encoder_layers=3,
-        num_decoder_layers=2,
-        dropout=DROPOUT,
-    ).to(DEVICE)
-
-    logger.info(f"STRAP model initialized on {DEVICE}")
-    logger.info(f"  Input dim: {input_dim}, Hidden dim: 64, Intention modes: 100")
-    logger.info(f"  Encoder layers: 3, Decoder layers: 2")
-    logger.info(f"  Mode: {'STRAP-R (risk-scaled loss)' if use_risk_loss else 'STRAP-B (basic loss)'}")
-
-    total_params = sum(p.numel() for p in model.parameters())
-    logger.info(f"  Total parameters: {total_params:,}")
-
-    if args.mode == "train":
-        num_epochs = args.epochs
-
-        training_log = train(
-            model,
-            num_epochs=num_epochs,
-            use_risk_loss=use_risk_loss,
-            beta=beta,
-            debug=args.debug,
-            resume_from=args.resume,
-            checkpoint_every=args.checkpoint_every,
-            learning_rate=args.lr,
-        )
-
-        # Print final metrics
-        logger.info("\nTraining Summary:")
-        logger.info(f"  Best validation loss seen during training")
-        logger.info(f"  Final learning rate: {training_log[-1]['lr']:.6f}")
-
-        # Verify model works
-        model.load_state_dict(torch.load(f"{CHECKPOINT_DIR}/best_model.pt", map_location=DEVICE, weights_only=True))
-        model.eval()
-
-        # Quick sanity check with real data subset
-        loader = NGSIMDataLoader(locations=locations, max_rows=50000)
-        loader.fetch()
-        samples = loader.build_samples(max_samples=1)
-        if len(samples) > 0:
-            norm_path = f"{CHECKPOINT_DIR}/{NORMALIZATION_FILE}"
-            if os.path.exists(norm_path):
-                norm_stats = load_stats(norm_path)
-                states = apply_normalization(samples[0][0], norm_stats).to(DEVICE)
-            else:
-                states = samples[0][0].to(DEVICE)
-            mask = samples[0][3].to(DEVICE)
-            with torch.no_grad():
-                traj_dist, goals, risk = model(states, mask)
-            logger.info(f"\nSanity check output shapes:")
-            logger.info(f"  Traj dist: {traj_dist.shape}  (expected: 1x50x5)")
-            logger.info(f"  Goals: {goals.shape}  (expected: 1x{states.shape[2]-1}x4)")
-            logger.info(f"  Risk field: {risk.shape}  (expected: 1x100x2)")
-
-    elif args.mode == "eval":
-        checkpoint_path = f"{CHECKPOINT_DIR}/best_model.pt"
-        if os.path.exists(checkpoint_path):
-            model.load_state_dict(torch.load(checkpoint_path, map_location=DEVICE, weights_only=True))
-            logger.info(f"Loaded model from {checkpoint_path}")
-        else:
-            logger.info("No checkpoint found. Run training first.")
-            return
-
-        model.eval()
-
-        # Load normalization and intentions
-        norm_path = f"{CHECKPOINT_DIR}/{NORMALIZATION_FILE}"
-        intent_path = f"{CHECKPOINT_DIR}/{INTENTIONS_FILE}"
-        norm_stats = load_stats(norm_path) if os.path.exists(norm_path) else None
-        if os.path.exists(intent_path):
-            centers = load_codebook(intent_path)
-            model.risk_decoder.set_intentions(torch.from_numpy(centers))
-
-        loader = NGSIMDataLoader(locations=locations, max_rows=None)
-        loader.fetch()
-        _, _, test_samples = loader.get_splits()
-        if norm_stats:
-            test_samples = [
-                (apply_normalization(sample[0], norm_stats), *sample[1:])
-                for sample in test_samples
-            ]
-        test_dl = create_dataloader(test_samples, batch_size=32, shuffle=False)
-
-        metrics = evaluate_trajectory(model, test_dl, DEVICE)
-        print_metrics(metrics, label="NGSIM Test Split")
-
-    elif args.mode == "predict":
-        checkpoint_path = f"{CHECKPOINT_DIR}/best_model.pt"
-        if not os.path.exists(checkpoint_path):
-            logger.info("No checkpoint found. Run training first.")
-            return
-
-        model.load_state_dict(torch.load(checkpoint_path, map_location=DEVICE, weights_only=True))
-        model.eval()
-
-        # Load normalization and intentions
-        norm_path = f"{CHECKPOINT_DIR}/{NORMALIZATION_FILE}"
-        intent_path = f"{CHECKPOINT_DIR}/{INTENTIONS_FILE}"
-        norm_stats = load_stats(norm_path) if os.path.exists(norm_path) else None
-        if os.path.exists(intent_path):
-            centers = load_codebook(intent_path)
-            model.risk_decoder.set_intentions(torch.from_numpy(centers))
-
-        # Load a scene and predict
-        loader = NGSIMDataLoader(locations=locations, max_rows=50000)
-        loader.fetch()
-        samples = loader.build_samples(max_samples=1)
-        if len(samples) > 0:
-            states, gt_pos, gt_goals, mask, vehicle_ids, goal_mask, target_origin = samples[0]
-            if norm_stats:
-                states = apply_normalization(states, norm_stats)
-            states = states.to(DEVICE)
-            mask = mask.to(DEVICE)
-
-            with torch.no_grad():
-                traj_dist, goals, risk = model(states, mask)
-
-        logger.info("Prediction complete!")
-        logger.info(f"  Predicted future positions shape: {traj_dist.shape}")
-        logger.info(f"  First timestep mean: ({traj_dist[0, 0, 0].item():.2f}, {traj_dist[0, 0, 1].item():.2f})")
-        logger.info(f"  First timestep uncertainty: sigma_x={traj_dist[0, 0, 2].item():.3f}, sigma_y={traj_dist[0, 0, 3].item():.3f}")
-        logger.info(f"  Correlation: {traj_dist[0, 0, 4].item():.3f}")
-        logger.info(f"  Risk field shape: {risk.shape}")
-
-        # Evaluate extensible risk metrics
-        from src.evaluation.risk_metrics import RiskMetricRegistry
-
-        target_pred_mu = traj_dist[:, :, :2]  # relative to final observed target position
-        # gt_pos represents ground-truth future positions (B, T_f, 2) for target
-        # Wait, the current create_sample returns gt_pos for the target only.
-        # We need the neighbor futures to evaluate collisions.
-        # Actually, neighbor_goals contains (N_v, 4) [end_x, end_y, end_vx, end_vy].
-        # For full trajectory evaluation, we'd need neighbor_trajs. Since our pipeline
-        # currently doesn't return full neighbor GT trajectories from create_sample,
-        # we will approximate them using constant velocity from current state for demonstration,
-        # or we need to update create_sample to return them.
-        # Let's do a simple constant-velocity rollout for neighbors from their current state.
-        
-        # Neighbor current states: relative pos + vel
-        # states: (1, T_h, N_v+1, 10). T_h-1 is the current timestep.
-        current_neighbor_pos = states[:, -1, 1:, :2]  # (1, N_v, 2)
-        current_neighbor_vel = states[:, -1, 1:, 2:4] * 30.0  # (1, N_v, 2) (un-normalize velocity)
-        
-        T_f = traj_dist.shape[1]
-        dt = 0.1
-        time_steps = torch.arange(1, T_f + 1, device=DEVICE).view(1, T_f, 1, 1).float() * dt
-        
-        # Approximate neighbor future: pos + vel * t
-        neighbors_future = current_neighbor_pos.unsqueeze(1) + current_neighbor_vel.unsqueeze(1) * time_steps
-        # shape: (1, T_f, N_v, 2)
-
-        metrics_to_run = args.risk_metrics.split(",")
-        logger.info("\nRisk Metric Evaluation:")
-        for metric_name in metrics_to_run:
-            metric_name = metric_name.strip()
-            if not metric_name:
-                continue
-            try:
-                metric = RiskMetricRegistry.get(metric_name)
-                risk_values = metric.compute(target_pred_mu, neighbors_future, dt=dt)
-                logger.info(f"  {metric_name.upper()}:")
-                # print values for the first 5 neighbors (if available)
-                nv_print = min(5, risk_values.shape[1])
-                for i in range(nv_print):
-                    logger.info(f"    Neighbor {i+1}: {risk_values[0, i].item():.3f}")
-            except Exception as e:
-                logger.info(f"  {metric_name.upper()}: Error computing metric - {e}")
-
-    elif args.mode == "log_collisions":
-        checkpoint_path = f"{CHECKPOINT_DIR}/best_model.pt"
-        if not os.path.exists(checkpoint_path):
-            logger.info("No checkpoint found. Run training first.")
-            return
-
-        model.load_state_dict(torch.load(checkpoint_path, map_location=DEVICE, weights_only=True))
-        model.eval()
-
-        # Load normalization and intentions
-        norm_path = f"{CHECKPOINT_DIR}/{NORMALIZATION_FILE}"
-        intent_path = f"{CHECKPOINT_DIR}/{INTENTIONS_FILE}"
-        norm_stats = load_stats(norm_path) if os.path.exists(norm_path) else None
-        if os.path.exists(intent_path):
-            centers = load_codebook(intent_path)
-            model.risk_decoder.set_intentions(torch.from_numpy(centers))
-
-        # We will use the specified collision metric
-        from src.evaluation.risk_metrics import RiskMetricRegistry
-        from src.evaluation.collision import collision_metrics_from_labels
-        import numpy as np
-        metric_name = args.collision_metric.strip()
-        threshold = args.collision_threshold
-        metric = RiskMetricRegistry.get(metric_name)
-        
-        # Determine subset size based on debug flag
-        max_rows = 50000 if args.debug else None
-        
-        logger.info(f"Loading data (debug={args.debug})...")
-        loader = NGSIMDataLoader(locations=locations, max_rows=max_rows)
-        loader.fetch()
-        _, _, test_samples = loader.get_splits()
-        
-        if not test_samples:
-            logger.info("No test samples available.")
-            return
-
-        # Get the scene indices for test samples so we can access GT futures
-        test_scene_indices = loader._split_indices['test']
-            
-        collision_log_path = f"{LOG_DIR}/collisions.txt"
-        metrics_log_path = f"{LOG_DIR}/collision_metrics.txt"
-        logger.info(f"Evaluating {len(test_samples)} test samples for collisions...")
-        logger.info(f"Using metric '{metric_name}' with threshold {threshold}")
-        logger.info(f"Writing collisions to {collision_log_path}")
-        
-        num_collisions = 0
-        all_pred_labels = []  # binary: 1 = predicted collision
-        all_gt_labels = []    # binary: 1 = GT collision
-        
-        T_h = loader.history_frames  # 30
-        T_f = loader.future_frames   # 50
-        
-        os.makedirs(LOG_DIR, exist_ok=True)
-        with open(collision_log_path, "w") as f:
-            f.write(f"Target_Vehicle_ID,Neighbor_Vehicle_ID,{metric_name.upper()}_Value,GT_Collision\n")
-            
-            for i, sample in enumerate(test_samples):
-                states, gt_pos, gt_goals, mask, vehicle_ids, goal_mask, target_origin = sample
-                target_id = vehicle_ids[0]
-                
-                # Get the corresponding scene for GT neighbor futures
-                scene_idx = test_scene_indices[i]
-                scene = loader.scenes[scene_idx]
-                scene_frames = scene["frames"]  # (80, N, 4)
-                
-                # GT neighbor future trajectories: frames[T_h:T_h+T_f, 1:, :2]
-                n_scene_vehicles = scene_frames.shape[1]
-                n_neighbors = n_scene_vehicles - 1
-                gt_target_future = torch.from_numpy(
-                    scene_frames[T_h:T_h + T_f, 0, :2]
-                ).float().unsqueeze(0)  # (1, T_f, 2)
-                gt_neighbor_futures = torch.from_numpy(
-                    scene_frames[T_h:T_h + T_f, 1:, :2]
-                ).float().unsqueeze(0)  # (1, T_f, N_v, 2)
-                
-                if norm_stats:
-                    states = apply_normalization(states, norm_stats)
-                states = states.to(DEVICE)
-                mask = mask.to(DEVICE)
-
-                with torch.no_grad():
-                    traj_dist, goals, risk = model(states, mask)
-
-                target_pred_mu = traj_dist[:, :, :2] + target_origin.to(DEVICE).unsqueeze(1)
-                
-                # Approximate neighbor future: pos + vel * t (for predictions)
-                current_neighbor_pos = states[:, -1, 1:, :2]  # (1, N_v, 2)
-                current_neighbor_vel = states[:, -1, 1:, 2:4] * 30.0  # (1, N_v, 2)
-                
-                dt = 0.1
-                time_steps = torch.arange(1, T_f + 1, device=DEVICE).view(1, T_f, 1, 1).float() * dt
-                neighbors_future_pred = current_neighbor_pos.unsqueeze(1) + current_neighbor_vel.unsqueeze(1) * time_steps
-
-                # Compute predicted risk metric
-                risk_values = metric.compute(target_pred_mu, neighbors_future_pred, dt=dt, collision_threshold=threshold)
-                
-                # Compute GT collision labels using actual scene trajectories
-                # GT min distance between target and each neighbor
-                gt_dist = torch.norm(
-                    gt_target_future.unsqueeze(2) - gt_neighbor_futures, dim=-1
-                )  # (1, T_f, N_v)
-                gt_min_dist = gt_dist.min(dim=1).values  # (1, N_v)
-                
-                # For each neighbor, check predicted vs GT collision
-                n_eval = min(risk_values.shape[1], n_neighbors)
-                for nv_idx in range(n_eval):
-                    pred_val = risk_values[0, nv_idx].item()
-                    gt_d = gt_min_dist[0, nv_idx].item()
-                    
-                    pred_collision = 1 if pred_val < threshold else 0
-                    gt_collision = 1 if gt_d < threshold else 0
-                    
-                    all_pred_labels.append(pred_collision)
-                    all_gt_labels.append(gt_collision)
-                    
-                    if pred_collision or gt_collision:
-                        neighbor_id = vehicle_ids[nv_idx + 1]
-                        f.write(f"{target_id},{neighbor_id},{pred_val:.3f},{gt_collision}\n")
-                        if pred_collision:
-                            num_collisions += 1
-                        
-                if (i + 1) % 100 == 0:
-                    logger.info(f"Processed {i+1}/{len(test_samples)} samples...")
-                    
-        logger.info(f"Finished evaluating collisions! Found {num_collisions} predicted colliding pairs.")
-        
-        # Compute and log classification metrics
-        metrics = collision_metrics_from_labels(
-            np.array(all_pred_labels), np.array(all_gt_labels)
-        )
-        
-        logger.info(f"\n{'='*50}")
-        logger.info(f"Collision Prediction Metrics (metric={metric_name}, threshold={threshold})")
-        logger.info(f"{'='*50}")
-        logger.info(f"  Total pairs evaluated: {len(all_pred_labels)}")
-        logger.info(f"  True Positives:  {int(metrics['tp'])}")
-        logger.info(f"  False Positives: {int(metrics['fp'])}")
-        logger.info(f"  False Negatives: {int(metrics['fn'])}")
-        logger.info(f"  True Negatives:  {int(metrics['tn'])}")
-        logger.info(f"  Accuracy:   {metrics['accuracy']:.4f}")
-        logger.info(f"  Precision:  {metrics['precision']:.4f}")
-        logger.info(f"  Recall:     {metrics['recall']:.4f}")
-        logger.info(f"  F1 Score:   {metrics['f1']:.4f}")
-        logger.info(f"{'='*50}")
-        
-        # Save metrics to file
-        with open(metrics_log_path, "w") as f:
-            f.write(f"Collision Prediction Metrics\n")
-            f.write(f"Metric: {metric_name}, Threshold: {threshold}\n")
-            f.write(f"{'='*40}\n")
-            f.write(f"Total pairs evaluated: {len(all_pred_labels)}\n")
-            f.write(f"True Positives:  {int(metrics['tp'])}\n")
-            f.write(f"False Positives: {int(metrics['fp'])}\n")
-            f.write(f"False Negatives: {int(metrics['fn'])}\n")
-            f.write(f"True Negatives:  {int(metrics['tn'])}\n")
-            f.write(f"Accuracy:   {metrics['accuracy']:.4f}\n")
-            f.write(f"Precision:  {metrics['precision']:.4f}\n")
-            f.write(f"Recall:     {metrics['recall']:.4f}\n")
-            f.write(f"F1 Score:   {metrics['f1']:.4f}\n")
-        logger.info(f"Metrics saved to {metrics_log_path}")
-
-    elif args.mode == "compare_metrics":
-        checkpoint_path = f"{CHECKPOINT_DIR}/best_model.pt"
-        if not os.path.exists(checkpoint_path):
-            logger.info("No checkpoint found. Run training first.")
-            return
-
-        model.load_state_dict(torch.load(checkpoint_path, map_location=DEVICE, weights_only=True))
-        model.eval()
-
-        # Load normalization and intentions
-        norm_path = f"{CHECKPOINT_DIR}/{NORMALIZATION_FILE}"
-        intent_path = f"{CHECKPOINT_DIR}/{INTENTIONS_FILE}"
-        norm_stats = load_stats(norm_path) if os.path.exists(norm_path) else None
-        if os.path.exists(intent_path):
-            centers = load_codebook(intent_path)
-            model.risk_decoder.set_intentions(torch.from_numpy(centers))
-
-        from src.evaluation.risk_metrics import RiskMetricRegistry
-        from src.evaluation.collision import (
-            collision_metrics_from_labels, compute_pr_auc, compute_roc_auc,
-        )
-        import numpy as np
-
-        max_rows = 50000 if args.debug else None
-        logger.info(f"Loading data (debug={args.debug})...")
-        loader = NGSIMDataLoader(locations=locations, max_rows=max_rows)
-        loader.fetch()
-        _, _, test_samples = loader.get_splits()
-
-        if not test_samples:
-            logger.info("No test samples available.")
-            return
-
-        test_scene_indices = loader._split_indices['test']
-        T_h = loader.history_frames
-        T_f = loader.future_frames
-
-        all_metric_names = RiskMetricRegistry.all_names()
-        logger.info(f"Comparing {len(all_metric_names)} risk metrics: {all_metric_names}")
-
-        # Pre-compute all predictions and GT labels
-        per_metric_pred = {name: [] for name in all_metric_names}
-        per_metric_scores = {name: [] for name in all_metric_names}
-        all_gt = []
-        gt_computed = False
-
-        for i, sample in enumerate(test_samples):
-            states, gt_pos, gt_goals, mask, vehicle_ids, goal_mask, target_origin = sample
-
-            scene_idx = test_scene_indices[i]
-            scene = loader.scenes[scene_idx]
-            scene_frames = scene["frames"]
-            n_neighbors = scene_frames.shape[1] - 1
-
-            gt_target_future = torch.from_numpy(
-                scene_frames[T_h:T_h + T_f, 0, :2]
-            ).float().unsqueeze(0)
-            gt_neighbor_futures = torch.from_numpy(
-                scene_frames[T_h:T_h + T_f, 1:, :2]
-            ).float().unsqueeze(0)
-
-            if norm_stats:
-                states = apply_normalization(states, norm_stats)
-            states = states.to(DEVICE)
-            mask = mask.to(DEVICE)
-
-            with torch.no_grad():
-                traj_dist, goals, risk = model(states, mask)
-
-            target_pred_mu = traj_dist[:, :, :2] + target_origin.to(DEVICE).unsqueeze(1)
-
-            current_neighbor_pos = states[:, -1, 1:, :2]
-            current_neighbor_vel = states[:, -1, 1:, 2:4] * 30.0
-            dt = 0.1
-            time_steps = torch.arange(1, T_f + 1, device=DEVICE).view(1, T_f, 1, 1).float() * dt
-            neighbors_future_pred = current_neighbor_pos.unsqueeze(1) + current_neighbor_vel.unsqueeze(1) * time_steps
-
-            # GT collision labels (min distance < 2m)
-            gt_dist = torch.norm(
-                gt_target_future.unsqueeze(2) - gt_neighbor_futures, dim=-1
-            )
-            gt_min_dist = gt_dist.min(dim=1).values
-
-            n_eval = min(neighbors_future_pred.shape[2], n_neighbors)
-            for nv_idx in range(n_eval):
-                gt_collision = 1 if gt_min_dist[0, nv_idx].item() < 2.0 else 0
-                all_gt.append(gt_collision)
-
-            # Run each metric
-            for name in all_metric_names:
-                metric = RiskMetricRegistry.get(name)
-                try:
-                    risk_values = metric.compute(
-                        target_pred_mu, neighbors_future_pred, dt=dt, collision_threshold=2.0
-                    )
-                except Exception:
-                    for nv_idx in range(n_eval):
-                        per_metric_pred[name].append(0)
-                        per_metric_scores[name].append(
-                            float("-inf") if metric.higher_is_riskier else float("inf")
-                        )
-                    continue
-
-                for nv_idx in range(n_eval):
-                    val = risk_values[0, nv_idx].item()
-                    pred = 1 if metric.is_collision(val) else 0
-                    per_metric_pred[name].append(pred)
-                    per_metric_scores[name].append(val)
-
-        gt_array = np.array(all_gt)
-
-        # Compute metrics for each risk metric and build comparison table
-        comparison_path = f"{LOG_DIR}/metric_comparison.txt"
-        os.makedirs(LOG_DIR, exist_ok=True)
-
-        header = (f"{'Metric':<15} {'Threshold':>10} {'Dir':>6} {'TP':>5} {'FP':>5} "
-              f"{'FN':>5} {'TN':>5} {'Acc':>8} {'Prec':>8} {'Recall':>8} "
-              f"{'F1':>8} {'FPR':>8} {'PR-AUC':>8} {'ROC-AUC':>8}")
-        sep = '=' * len(header)
-
-        lines = []
-        lines.append("Risk Metric Comparison Report")
-        lines.append(f"Test samples: {len(test_samples)}, Total pairs: {len(gt_array)}")
-        lines.append(f"GT collisions: {int(gt_array.sum())}, GT non-collisions: {int((1-gt_array).sum())}")
-        lines.append("")
-        lines.append(sep)
-        lines.append(header)
-        lines.append(sep)
-
-        for name in all_metric_names:
-            pred_array = np.array(per_metric_pred[name])
-            m = collision_metrics_from_labels(pred_array, gt_array)
-            metric_instance = RiskMetricRegistry.get(name)
-            pr_auc = compute_pr_auc(
-                per_metric_scores[name], gt_array,
-                higher_is_riskier=metric_instance.higher_is_riskier,
-            )
-            roc_auc = compute_roc_auc(
-                per_metric_scores[name], gt_array,
-                higher_is_riskier=metric_instance.higher_is_riskier,
-            )
-            direction = ">" if metric_instance.higher_is_riskier else "<"
-            thresh = metric_instance.default_threshold
-
-            line = (f"{name:<15} {thresh:>10.3f} {direction:>6} "
-                    f"{int(m['tp']):>5} {int(m['fp']):>5} {int(m['fn']):>5} {int(m['tn']):>5} "
-                    f"{m['accuracy']:>8.4f} {m['precision']:>8.4f} {m['recall']:>8.4f} "
-                    f"{m['f1']:>8.4f} {m['false_alarm_rate']:>8.4f} "
-                    f"{pr_auc:>8.4f} {roc_auc:>8.4f}")
-            lines.append(line)
-
-        lines.append(sep)
-
-        # Print and save
-        for line in lines:
-            logger.info(line)
-
-        with open(comparison_path, "w") as f:
-            f.write("\n".join(lines) + "\n")
-        logger.info(f"\nComparison report saved to {comparison_path}")
 
 if __name__ == "__main__":
     main()
