@@ -2,12 +2,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from src.config import (
-    GAMMA_X, GAMMA_Y, ALPHA_X, ALPHA_Y,
-    D_STAR, T_STAR, BETA_1, BETA_2, DT,
-)
-from src.risk import closest_approach, compute_o_field
-from src.risk import compute_s_field
+from src.risk import default_dims, endpoint_risk
 
 
 class RiskAttentiveDecoder(nn.Module):
@@ -40,9 +35,10 @@ class RiskAttentiveDecoder(nn.Module):
         self.d_model = d_model
         self.t_future = t_future
 
-        # Intention mode codebook (initialized randomly, fitted during training)
-        self.intention_means = nn.Parameter(
-            torch.randn(k_intentions, 4) * 0.01  # [x, y, vx, vy]
+        # Intention codebook [x, y, vx, vy]: fixed k-means centres (paper III-E),
+        # a buffer so the optimizer never moves it (SOLUTIONS problem 3).
+        self.register_buffer(
+            "intention_means", torch.randn(k_intentions, 4) * 0.01
         )
 
         # Risk field embedding MLP: (2 + 4) -> D
@@ -100,12 +96,14 @@ class RiskAttentiveDecoder(nn.Module):
         target_encoded: torch.Tensor,  # (B, T_h, D)
         neighbor_goals: torch.Tensor,   # (B, N_v, 4)
         neighbor_mask: torch.Tensor,    # (B, N_v) bool
+        dims: torch.Tensor = None,      # (B, N_v+1, 2) [length, width], row 0 = target
     ) -> tuple:
         """
         Args:
             target_encoded: (B, T_h, D) encoded target history
             neighbor_goals: (B, N_v, 4) predicted neighbor goals
             neighbor_mask: (B, N_v) boolean mask
+            dims: (B, N_v+1, 2) vehicle sizes in metres (default: a generic car)
 
         Returns:
             traj_dist: (B, T_f, 5) trajectory distribution parameters
@@ -123,34 +121,16 @@ class RiskAttentiveDecoder(nn.Module):
         # Each mode: [x, y, vx, vy]
         intentions = self.intention_means.unsqueeze(0).expand(B, -1, -1)  # (B, K, 4)
 
-        intention_pos = intentions[:, :, None, :2]
-        intention_vel = intentions[:, :, None, 2:4]
-        neighbor_pos = neighbor_goals[:, None, :, :2]
-        neighbor_vel = neighbor_goals[:, None, :, 2:4]
-        relative_position = intention_pos - neighbor_pos
-        relative_velocity = intention_vel - neighbor_vel
-
-        s_field = compute_s_field(
-            relative_position[..., 0], relative_position[..., 1],
-            GAMMA_X, GAMMA_Y, ALPHA_X, ALPHA_Y,
+        if dims is None:
+            dims = default_dims(B, N_v + 1, device=neighbor_goals.device)
+        # Risk field: (B, K, 2), each mode's end point against the predicted goals.
+        risk_field = endpoint_risk(
+            intentions,
+            neighbor_goals[:, None],
+            dims[:, None, 0],
+            dims[:, None, 1:],
+            neighbor_mask[:, None] if neighbor_mask is not None else None,
         )
-        min_distance, time_to_closest = closest_approach(
-            relative_position, relative_velocity
-        )
-        o_field = compute_o_field(
-            min_distance, time_to_closest.clamp(min=DT),
-            D_STAR, T_STAR, BETA_1, BETA_2,
-        )
-        if neighbor_mask is not None:
-            valid_neighbors = neighbor_mask[:, None, :].to(torch.bool)
-            s_field = s_field.masked_fill(~valid_neighbors, 0.0)
-            o_field = o_field.masked_fill(~valid_neighbors, 0.0)
-
-        R_s = s_field.sum(dim=-1)
-        R_o = o_field.sum(dim=-1)
-
-        # Risk field: (B, K, 2)
-        risk_field = torch.stack([R_s, R_o], dim=-1)
 
         # Concatenate risk + intention and embed
         intent_risk = torch.cat([risk_field, intentions], dim=-1)  # (B, K, 6)

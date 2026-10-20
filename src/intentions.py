@@ -8,6 +8,8 @@ import pickle
 import numpy as np
 import torch
 
+from src.risk import end_velocity
+
 
 def fit_intention_codebook(endpoints, k=100, seed=42):
     """Fit k-means codebook on training endpoints.
@@ -81,11 +83,7 @@ def build_codebook_from_samples(samples, k=100, seed=42):
     """
     endpoints = []
     for _, gt_pos, _ in samples:
-        gt = gt_pos[0] if isinstance(gt_pos, torch.Tensor) and gt_pos.dim() == 3 else gt_pos
-        if isinstance(gt, torch.Tensor):
-            gt = gt.detach().cpu().numpy()
-        gt = np.asarray(gt)
-        end_pos = gt[-1, :2]
-        vel = (gt[-1, :2] - gt[max(0, len(gt) - 10), :2]) / 1.0  # ~1s velocity proxy
-        endpoints.append(np.concatenate([end_pos, vel]))
+        gt = torch.as_tensor(gt_pos).detach().cpu().reshape(-1, 2)
+        # Same 1 s end velocity as the loss weight (p[-1] - p[-11]) / 1 s.
+        endpoints.append(torch.cat([gt[-1], end_velocity(gt)]).numpy())
     return fit_intention_codebook(np.stack(endpoints), k=k, seed=seed)

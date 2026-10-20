@@ -18,25 +18,41 @@ As of 2026-10-20.
 
 | # | Problem | Status | Chosen solution |
 | --- | --- | --- | --- |
-| 1 | NGSIM recording periods are overlaid; no unique key | Decided | Key = (location, period, frame_id) for time and (location, period, vehicle_id) for vehicles |
-| 1b | Absolute lane id means different things per site | Decided | Lane feature = target lane − vehicle lane at the same timestep (left +, right −) |
-| 2 | γ_risk lets the model cheat the risk-scaled loss | Decided | γ_risk from ground-truth future risk (no gradient path) |
-| 3 | Intention codebook is trainable, and eval silently resets it | Decided | Freeze the codebook as a buffer |
-| 4 | Risk-field parameters are placeholders | Open (analysis done) | — |
-| 5 | Validation and test are I-80 only | Open (options written up) | A: one global cut, or B: cut each recording 70/10/20; random split rejected |
-| 6 | Encoder stacking order vs Fig. 2 | Open | — |
+| 1 | NGSIM recording periods are overlaid; no unique key | Implemented | Key = (location, period, frame_id) for time and (location, period, vehicle_id) for vehicles |
+| 1b | Absolute lane id means different things per site | Implemented | Lane feature = target lane − vehicle lane at the same timestep (left +, right −) |
+| 2 | γ_risk lets the model cheat the risk-scaled loss | Implemented | γ_risk from ground-truth future risk (no gradient path) |
+| 3 | Intention codebook is trainable, and eval silently resets it | Implemented | Freeze the codebook as a buffer |
+| 4 | Risk-field parameters are placeholders | Implemented | Full calibration from reference [22] (gap-based S-field, collision-only O-field); loss bias β = 0 |
+| 5 | Validation and test are I-80 only | Implemented | Option B: scenes per recording, each recording split by time 70/10/20 with 80-frame guard gaps, then pool and shuffle each split |
+| 6 | Encoder stacking order vs Fig. 2 | Implemented | Interleave: (spatial → temporal) block stacked N = 3 times, S, T, S, T, S, T |
 | 7 | Target history positions are always 0 | Deprioritised | Keep per-timestep origin; lost lateral history changes 5 s lateral RMSE by ≈ 0.02–0.03 m |
 | 8 | Lateral velocity is always 0 | Deprioritised | Keep vy = 0; same small lateral gain as problem 7 |
-| 9 | Nearest-15 fallback / neighbour count | Open | — |
-| 10 | Table II risk-level breakdown missing | Open | — |
-| D | How us-101 and i-80 are used together | Open | — |
+| 9 | Nearest-15 fallback / neighbour count | Implemented | Remove the fallback (0 neighbours if none passes 0.005); collision ground truth from all vehicles present, not only selected neighbours |
+| 10 | Table II risk-level breakdown missing | Deprioritised | Not implemented for now; overall and per-site RMSE are reported instead |
+| D | How us-101 and i-80 are used together | Implemented | One pooled model on all 6 recordings, shuffled; report overall + per-site RMSE |
 | N | Novel objective: risk-appetite-constrained prediction | Open (partly scoped) | — |
+
+**Implementation notes (2026-10-20)**
+
+Problems 1, 1b, 2, 3, 4, 5, 6, 9 and D are in the code. Each has a check in `tests/test_solutions.py`, and the
+`--debug` pipeline (prepare → train → eval → collisions) runs end to end on both sites. Choices the decisions left open:
+
+- **Problem 4, speed in γx(v), αx(v):** the **ego (target) speed** is used, in `pair_risk` (`src/risk.py`). This is still to be checked against [22].
+- **Problem 4, dimensions in the decoder:** each sample now carries raw `[length, width]` per vehicle (sample index 7, batch index 5).
+  `STRAP(states, mask, dims)` passes them to the decoder's `endpoint_risk`. When dims are missing, a 4.5 × 1.8 m car is assumed.
+- **Problem 2:** `src.risk.ground_truth_risk` gives the loss weight. `risk_scaled_loss` also detaches its risk input as a safeguard.
+- **Problem 9, collision candidates:** the **nearest 15** vehicles present at frame 30 (`NGSIMDataLoader.collision_candidates`), by centre distance.
+  Ground truth is the minimum true distance over the frames where the candidate is still recorded. Candidates with no future frame are dropped.
+- **Paths:** checkpoints and logs moved to `strap_reproduction_v3`, so the old v2 results are kept and not overwritten.
+- **Open issue found during testing (not one of the problems above):** in eval mode the predicted σ collapses to about 1e-5, so the
+  validation NLL, and with it the validation loss, reaches 1e6–1e9 while validation RMSE is normal. The v2 run already showed this
+  (val loss 8.6e9 → 8.8e6). `best_model.pt` is chosen by validation loss, so the selected epoch is unreliable until this is fixed.
 
 ---
 
 ## Problem 1: NGSIM recording periods are overlaid; no unique key
 
-**Status:** Decided
+**Status:** Implemented
 
 ### Description
 Each NGSIM site was recorded in three separate 15-minute periods. Every period restarts `frame_id` and reuses the same
@@ -93,13 +109,15 @@ is a small change in one file that extends the per-location offsetting that alre
 - The timeline has about 6 segments (≈ 55–60k frames); `build_scenes` peak memory rises to about 250 MB.
 - The temporal split now runs over 6 segments; see problems 5 and D.
 - The real-time overlap between periods is **kept** (user decision, 2026-10-20). Only ≤ 10 cars per boundary are recorded twice.
-  Under problem 5 option B this is a tiny train/test leak (≤ ~30 cars in total).
+  Under problem 5 option B this is a tiny train/test leak (≤ ~30 cars in total); option B′ removes it by keeping those minutes out of train.
+- Problem 1 is also what makes the split's 80-frame guard gap valid: before it, one `frame_id` stands for three moments, so the
+  temporal cut cannot keep train and test apart in real time (see problem 5, "Current pipeline order").
 
 ---
 
 ## Problem 1b: The absolute lane id means different things at each site
 
-**Status:** Decided
+**Status:** Implemented
 
 ### Description
 Input feature 6 is the absolute NGSIM `lane_id` ÷ 2. The numbering differs per site: us-101 has lanes 1–8 (1–5 main, 6 auxiliary, 7 on-ramp,
@@ -143,7 +161,7 @@ and is a one-line change with no new feature dimensions.
 
 ## Problem 2: γ_risk lets the model cheat the risk-scaled loss
 
-**Status:** Decided
+**Status:** Implemented
 
 ### Description
 The risk-scaled loss (paper Eq. 13–14) multiplies each sample's loss by γ = exp(R_s + R_o). Our code takes R from the decoder's
@@ -184,7 +202,7 @@ Weighting it would need neighbours' full future trajectories in the batch.
 
 ## Problem 3: The intention codebook is trainable, and evaluation silently resets it
 
-**Status:** Decided
+**Status:** Implemented
 
 ### Description
 The paper fixes its K = 100 intention modes as k-means centres of training end points (§III-E). Our `intention_means` is an `nn.Parameter`,
@@ -215,10 +233,22 @@ It is the paper's design, fixes both the drift and the train/eval mismatch, keep
 
 ## Problem 4: Risk-field parameters are placeholders
 
-**Status:** Open. Analysis done, decision pending.
+**Status:** Implemented (2026-10-20): option A, full [22] calibration.
 
 ### Description
-The paper only gives limits (γx, γy > 1; αx, αy ≥ 2; β ≥ 1), not values. We used placeholders: γx = γy = 1.5 m, α = 2, d* = 5 m, t* = 2 s,
+The paper gives **no values** for any risk-field parameter. What it does give (§III-B, §IV-A):
+
+| Parameter | Paper |
+| --- | --- |
+| γx, γy (S-field scale) | only "> 1" |
+| αx, αy (S-field shape) | only "≥ 2" |
+| d\*, t\* (O-field scale) | "scaling factors", no value or limit |
+| β1, β2 (O-field shape) | "shape factors", no value or limit |
+| β (loss bias, Eq. 13) | "a pre-defined bias term", no value |
+| Neighbour threshold | 0.005 (given) |
+| Neighbours per vehicle | 6 on average, maximum Nv = 15 (given) |
+
+(An earlier version of this section listed "β ≥ 1" as a paper limit; the paper does not state it.) We used placeholders: γx = γy = 1.5 m, α = 2, d* = 5 m, t* = 2 s,
 β1 = β2 = 1, on centre-to-centre distances. Our O-field also gives risk to cars that are moving apart. These values drive input features 9–10,
 neighbour selection, the decoder's risk field and γ_risk.
 
@@ -266,51 +296,255 @@ The current values rank real conflicts worse than plain distance.
 ### Options under consideration
 | Option | Notes |
 | --- | --- |
-| A. Full [22] calibration | Cited source; S comes alive; O becomes true collision risk; 3.2 neighbours now (expected to rise after problem 8). |
+| A. Full [22] calibration | Cited source; S comes alive; O becomes true collision risk; 3.2 neighbours. |
 | A, then re-tune γx after problem 8 | Same as A, with a check against the paper's 6 neighbours once lateral velocity exists. |
 | [22] with γx ×3 | AUC 0.989 and 7.7 neighbours, but loss weights about 13× larger and no source for the factor. |
 | B. [22] constants on centre distances | Rejected in analysis: gap-calibrated γy on centre distances makes adjacent lanes vanish. |
 | C. Tune to 6 neighbours | One number cannot pin down eight parameters; arbitrary. |
 | D. Keep current values | S stays dead; O stays a proximity measure. |
 
-**Decision:** _pending_. Linked to the novel objective (N), where the appetite may scale these parameters.
+### Solution
+**Option A: use the full calibration from [22], and keep the loss bias β = 0.**
+- **S-field:** bumper-to-bumper gaps (from `v_length`, `v_width`), γx(v) and αx(v) as the speed-dependent polynomials above, γy = 1.4310, αy = 4.9956.
+- **O-field:** perpendicular miss distance d̂ₘ, t̂ₘ = −DᵀV / VᵀV, d\* = 0.5·(wᵢ + wⱼ), β1 = 10, t\* = 7.5 s, β2 = 2, and risk = 0 when the cars are moving apart.
+- **Thresholds kept from the paper:** 0.005 for neighbour selection, Nv = 15.
+- **β (loss bias) = 0.** This is the neutral choice; with problem 2's paper formula, γ = max(exp(R) − β, 1). It can be swept later as an ablation.
+- Apply it in one place (`src/risk.py`), so input features 9–10, neighbour selection, the decoder's endpoint risk and γ_risk all use the same field.
+
+**How the values were decided** (the paper is silent, so this is our assumption, stated as such):
+1. **Inherit from the source of the field.** [22] defines this exact S-field / O-field pair and calibrates it on highway data.
+   Two of its authors (Zilin Bian, Dachuan Zuo) are also STRAP authors, so [22]'s values are the most likely ones STRAP used.
+2. **Consistent with the paper's limits:** γx = 5.7–12.7 m and γy = 1.43 are > 1; the shapes 2.8–3.3 (longitudinal) and 5.0 (lateral) are ≥ 2.
+3. **Checked against the paper's indirect target:** the 0.005 threshold gives 3.2 neighbours on average, against the paper's 6.
+   Reported as a known gap, not tuned away (see the costs below).
+4. **Validated on training data only, never on test:** the sensitivity sweep above puts [22] at or near the best AUC for every parameter,
+   while the current placeholders rank real conflicts worse than plain distance (0.910 vs 0.968). The sweep is reported as a sensitivity analysis.
+
+**Citation note:** §III-B says "we adopt the safety potential field model … from [21]" (Wang et al. 2022), but the S-field / O-field names and both
+equations match [22]; [21] is a different, prediction-based risk metric. This is treated as a probable citation slip, and [22] is cited for the values.
+
+### Alternatives rejected
+- **A, then re-tune γx after problem 8:** no longer applies, because problem 8 is deprioritised (vy stays 0).
+- **[22] with γx ×3:** the AUC gain is only 0.004, loss weights become about 13× larger, and the factor has no source.
+- **B (centre distances):** gap-calibrated γy on centre distances makes adjacent lanes vanish.
+- **C (tune to 6 neighbours):** one number cannot pin down eight parameters, so the result would be arbitrary.
+- **D (keep current values):** the S-field stays dead and the O-field stays a proximity measure.
+
+### Why this solution
+It is the only option with a source: the field's own calibration, by overlapping authors. It also has the best or near-best conflict ranking
+in our sweep and moderate loss weights (mean γ ≈ 3.0), and it needs no tuning against a target we cannot pin down.
+
+### Known costs and checks (accepted)
+- **3.2 neighbours vs the paper's 6.** Log it under problem 9, together with how often the nearest-15 fallback fires.
+- **Gaps need vehicle dimensions everywhere risk is computed.** The decoder's endpoint risk uses predicted goals, which carry no dimensions,
+  so the target's and neighbours' length and width must be passed to it.
+- **Check which speed γx(v) and αx(v) use** in [22] (ego speed or relative speed) before coding it.
+- **With vy = 0 (problem 8), the O-field only sees same-lane closing.** Accepted under problem 8.
+- **Retrain afterwards:** risk features, neighbour selection and γ all change. Do it together with problems 1, 2, 3 and 5, so there is one retrain.
+- Linked to the novel objective (N), where the appetite may scale these parameters.
 
 ---
 
 ## Problem 5: Validation and test are I-80 only
 
-**Status:** Open
+**Status:** Implemented (2026-10-20): option B.
 
 ### Description
-_Placeholder._ The two sites are chained on one timeline and split 70/10/20 by time, so validation and test come entirely from I-80.
-With problem 1's fix the timeline has 6 (location, period) segments. To be discussed together with D.
+The two sites are chained on one timeline and split 70/10/20 by time, so validation and test come entirely from I-80.
+Everything below assumes problem 1's unique keys. The timeline then has 6 (location, period) segments in this order:
+us-101 p1, p2, p3, then i-80 p1, p2, p3, with 80-frame gaps between segments.
+
+Measured on the cached data (unique frames per period):
+
+| Site | p1 | p2 | p3 |
+| --- | --- | --- | --- |
+| us-101 | 9,529 (07:50–08:06) | 9,991 (08:04–08:21) | 9,948 (08:19–08:36) |
+| i-80 | 10,013 (15:59–16:16) | 9,787 (16:59–17:16) | 11,685 (17:13–17:32) |
+
+Total: 60,953 frames, about 49% us-101 and 51% i-80. Real-time overlaps between consecutive periods: us-101 90 s and 84 s,
+i-80 180 s (p2→p3) and none between p1 and p2.
+
+### Current pipeline order, and whether shuffling leaks
+1. `build_scenes` cuts the 8 s windows, and `build_samples` turns each window into one sample.
+2. `get_splits` makes the temporal cut and drops every window within 80 frames (one window) of each cut, **for all vehicles**.
+3. Normalisation statistics and the k-means codebook are fitted on **train only**.
+4. **The training set alone is shuffled**, every epoch (`train.py`, `shuffle=True`). Val and test are not shuffled, which is correct because order does not affect RMSE.
+
+**Shuffling does not leak.**
+- The model is stateless between samples: its input is only that window's 30 history frames, and no hidden state carries over between batches.
+- Shuffling reorders whole samples, not the frames inside them, so each window keeps its time order.
+- Inside train, the model does see other windows' futures: window A's future is window B's history, and a target's future is a neighbour-goal label in another target's scene. That is allowed, because all of it is training data. Leakage only means information crossing from train into val or test.
+- The real side effect of overlapping windows (stride 1 s, length 8 s) is **correlation**: the effective sample count is lower than the number of windows. Shuffling helps here, because without it a batch would be near-copies of one car.
+- The shuffle order is not reproducible: `SEED` only reaches k-means, and there is no `torch.manual_seed`.
+
+**The leak risk is at the split boundary.** The 80-frame guard gap means no raw frame of any car is in two splits, so a test
+target's future cannot appear in training as another car's history or neighbour goal. This holds only if a `frame_id` means one moment.
+- **Before problem 1** it does not. The three periods share `frame_id`s, so the cut puts the start of every i-80 period in train and the end of every period in test.
+  The end of i-80 p2 (test) runs in the same real time as the start of p3 (train) for 180 s. Only about 10 cars are recorded in both,
+  but the traffic state on both sides of the split is the same.
+- **After problem 1** each period has its own frame range, so the guard gap works again. What is left depends on the option below.
+
+### Option A: one global temporal cut (current `get_splits`, unchanged)
+- The cuts fall at 70% (frame 42,667) and 80% (frame 48,762) of the timeline. Both land inside i-80 p2, at about 33% and 95% of it.
+- **Train** = all of us-101 + i-80 p1 + the first ~5 min of i-80 p2 (i-80 is about 31% of train).
+  **Val** = ~10 min of i-80 p2 (about 17:05–17:15).
+  **Test** = the last ~50 s of i-80 p2 + all of i-80 p3 (17:13–17:32, the PM peak).
+- **Leakage after problem 1:**
+  - **Train vs test: none.** Train ends around 17:04 and test starts around 17:14.
+  - Val (the end of p2) shares about 2 min of real time with the start of test (p3). Val only picks the best epoch, so this is minor.
+- **Pros:** no code change. Test is strictly later than train. It is a hard, honest test of transfer to a new period and a partly new site.
+- **Cons:**
+  - Val and test are i-80 only, and test is a single congested period.
+  - RMSE mixes site shift with congestion and is not comparable to the paper's NGSIM-wide number.
+  - Model selection (val) is tuned to i-80, and us-101 is never evaluated.
+
+### Option B: cut each recording 70 / 10 / 20
+- Each of the 6 segments is cut at 70% and 80% of its own frames, with the existing 80-frame guard gap after each cut.
+  **Train** = the first ~10.5 min of every period, **val** = the next ~1.5 min, **test** = the last ~3 min.
+- This is close to the standard NGSIM protocol: as recalled, CS-LSTM splits each recording 70/10/20 by vehicle id, which STDAN reuses.
+  Verify this in CS-LSTM's `preprocess_data.m` before citing it.
+- **Leakage after problem 1:** the end of period k (test) runs in the same real time as the start of period k+1 (train), for 84–180 s per boundary.
+  At most ~10 cars per boundary (≤ ~30 in total) appear in both, plus the same traffic state at that moment.
+- **Pros:**
+  - Test covers both sites (about 49% / 51%) and all 6 periods.
+  - Per-site RMSE can be reported directly.
+  - Train, val and test come from the same mix of sites and traffic states.
+  - Closes TODO #5 in [PAPER_VS_IMPLEMENTATION.md](PAPER_VS_IMPLEMENTATION.md) §10.
+- **Cons:**
+  - Test follows train by only ~1.5 min inside the same period. Traffic states (e.g. one congestion wave) are correlated, so the score is optimistic.
+  - The guard gaps grow from 2 to 12, losing about 1.6% of frames instead of 0.3%.
+  - `get_splits` must cut per segment, using `location` + the `period` column that problem 1 keeps.
+
+### Option B′: option B, with the real-time overlap kept out of train
+- As B, but the first 84–180 s of each period k+1 that run at the same real time as period k are **excluded from train**.
+  Windows in those minutes are dropped if they would fall in train, and kept only if they fall in val or test.
+- **Leakage after problem 1: none** between train and test. No moment of real time is on both sides.
+- **Cost:** about 1–3 min of training data per site (≈ 3% of train), plus a few lines in `get_splits` to mark overlap frames
+  (compare each period's `global_time` range with the previous period's).
+- It refines problem 1's "keep the overlap" decision: the overlap is kept, but not in train.
+
+### Option C: random split of the built scenes (rejected)
+Question: after the scenes are built, does it matter if train / val / test are drawn as a random sample? **Yes. It leaks the answer.**
+- **Same-target overlap.** A window is 80 frames and the stride is 10, so each window shares frames with up to 7 earlier and
+  7 later windows of the same target. With a random 70/10/20 draw, the chance that none of those 14 is in train is about
+  0.3¹⁴ ≈ 5×10⁻⁸. In practice every test window has a near-copy in train.
+- **Labels become inputs.** The window that starts 30 frames later uses this window's future frames 30–59 as its history.
+  So test labels are literally training inputs.
+- **Cross-vehicle leak.** A test target also appears as a neighbour in other targets' training windows at the same time,
+  and its 5 s end point is a training label there (neighbour goal Ĝ).
+- **Effect:** test RMSE measures memorisation, not prediction. It is optimistic and not comparable to a held-out score.
+  This is the reason given in PAPER_VS_IMPLEMENTATION.md §1 ("Split method").
+- This is different from shuffling **after** the split, which the code already does and which is safe (see above).
+
+**Proposal considered (2026-10-20): build scenes per recording, pool them, shuffle, then split randomly.**
+- **Part 1 is good.** Building scenes independently for each (location, period) is problem 1's fix. It removes phantom
+  neighbours and id collisions, and should be kept.
+- **Part 2 leaks.** A random split of the pooled scenes is option C. The leak is not *between* recordings but between windows
+  that overlap in time *inside* one recording, so building scenes per recording does not remove it. All three leaks above still apply:
+  near-copies of the same car, test labels as training inputs, and test cars as neighbours with goal labels in training scenes.
+- **Fixes that do not work:**
+  - Non-overlapping windows (stride 80) remove the near-copies, but the cross-vehicle leak stays: another car's window covers the same seconds as this car's future.
+  - A random split by vehicle removes the same-car leaks, but test cars still appear as neighbours in training scenes.
+- **Correct version of the idea:**
+  1. Build scenes per recording.
+  2. Split each recording **by time**, 70/10/20, with the 80-frame guard gap (option B, or B′).
+  3. Pool the 6 train parts and shuffle them, and pool val and test the same way.
+
+  This keeps the goal of the proposal (every split contains both sites and all periods, mixed together) without leakage.
+  Random shuffling is safe only **after** the time-based split, never instead of it.
+
+Weaker random variants:
+
+| Variant | Verdict |
+| --- | --- |
+| Random split **by target vehicle** (all windows of a car in one set) | Removes the same-target overlap, but keeps the cross-vehicle leak (a test car is a neighbour with a goal label in training scenes) and the shared traffic state at the same instant. Still leaky. |
+| Random **time blocks** (e.g. 1-minute chunks with 80-frame guard gaps) | Leak-free and covers all recordings, but it is option B with many more gaps (more lost frames, train and test even closer in time). |
+
+### Comparison
+
+| | A: global cut | B: per recording | B′: B without overlap in train | C: random |
+| --- | --- | --- | --- | --- |
+| Test sites | i-80 only | us-101 + i-80 | us-101 + i-80 | both |
+| Test periods | i-80 p3 (+ end of p2) | all 6 | all 6 | all 6 |
+| Code change | none | `get_splits` per segment | B + overlap mask | small |
+| Train–test leakage (after problem 1) | none (val–test ~2 min, minor) | ≤ ~30 overlap cars | none | severe (near-copies, labels as inputs) |
+| Training data lost | ~0.3% (2 gaps) | ~1.6% (12 gaps) | ~1.6% + ~3% overlap | — |
+| Score | hardest (time + site shift) | optimistic (same period) | optimistic (same period) | invalid (memorisation) |
+| Comparable to paper's NGSIM number | no | closer (standard protocol) | closer | no (inflated) |
 
 ### Solution
-_To be decided._
+**Decision: option B.** Problem 1 must be implemented first.
+
+1. **Build scenes per recording.** Each (location, period) gets its own scenes, using problem 1's unique keys.
+2. **Split each recording by time, 70 / 10 / 20.** Cut each of the 6 segments at 70% and 80% of its own frames, and drop
+   every window within 80 frames (one window) of a cut, for all vehicles.
+3. **Pool and shuffle.** Pool the 6 train parts into one training set, and pool val and test the same way.
+   Train is shuffled every epoch (already the case in `train.py`). Val and test order does not matter.
+4. Fit normalisation statistics and the k-means codebook on the pooled train set only (unchanged).
+5. Report RMSE overall **and per site** (see D).
+
+Code change: `get_splits` cuts per segment (grouped by `location` + `period`) instead of over one global timeline.
+The 80-frame guard gap logic is reused unchanged inside each segment.
 
 ### Alternatives rejected
-_To be decided._
+
+| Alternative | Why rejected |
+| --- | --- |
+| A: one global temporal cut | Val and test are i-80 only and test is one congested period, so RMSE is an i-80 PM-peak number, not comparable to the paper. |
+| B′: B with the real-time overlap kept out of train | Removes the ≤ ~30-car overlap leak, but costs ~3% of train and extra code. Not chosen, in line with problem 1's "keep the overlap" decision; it remains the upgrade path if the leak matters. |
+| C: random split of pooled scenes | Leaks the answer (near-copies, labels as inputs, cross-vehicle goals). See above. |
 
 ### Why this solution
-_To be decided._
+- Every split contains both sites and all 6 periods, so the test score covers all of NGSIM, as the paper's does.
+- It is close to the standard NGSIM protocol (CS-LSTM / STDAN split each recording 70/10/20; to verify before citing), so results are comparable with the baselines.
+- Splitting by time keeps the 80-frame guard gap valid, so there is no train/test leak except the accepted ≤ ~30 overlap cars.
+- Shuffling after the split gives mixed batches with no leakage.
+
+### Known costs (accepted)
+- Test follows train by only ~1.5 min inside each period, so traffic states are correlated and the score is somewhat optimistic.
+- 12 guard gaps instead of 2: about 1.6% of frames lost instead of 0.3%.
+- ≤ ~10 cars per period boundary (≤ ~30 in total) can appear in both train and test, because of the kept real-time overlap.
 
 ---
 
 ## Problem 6: Encoder stacking order vs Fig. 2
 
-**Status:** Open
+**Status:** Implemented (2026-10-20)
 
 ### Description
-_Placeholder._ We run 3 spatial layers, then 3 temporal layers; Fig. 2 suggests interleaving (S, T, S, T, S, T).
+We run 3 spatial layers, then 3 temporal layers (S, S, S, T, T, T) in `STRAP.forward` (`src/models/strap.py`).
+
+The paper never says "interleaved" or "alternating", but its text describes one spatial-temporal block that is repeated (§III-D):
+- The temporal encoder's input is the **spatial encoder's output**: H̄s = Hs + PE (Eq. 5).
+- The temporal output C is "the final output of the spatial-temporal encoder" (Eq. 7), so one spatial + one temporal layer form one encoder.
+- *"The spatial and temporal encoder layers can be stacked N times … where N represents the number of encoding layers."*
+- §IV-A: *"The model has 3 spatial and temporal encoder layers"*, so N = 3.
+
+Stacking that block 3 times gives S → T → S → T → S → T. Our order contradicts Eq. 5: the 2nd and 3rd temporal layers receive a temporal output, not a spatial one.
+
+**Strength of evidence:** implied by Eqs. 5–7 and the stacking sentence, not stated explicitly.
+Fig. 2 may show the arrangement directly, but it is an image and was not checked here. Look at it before calling this confirmed.
 
 ### Solution
-_To be decided._
+**Interleave the layers.** One loop over i = 0…2: `H = spatial_encoders[i](H, mask)`, then `H = temporal_encoders[i](H, mask)`.
+- The parameter count is unchanged (same 3 + 3 layers), and both `ModuleList`s and their state_dict keys stay as they are.
+- Each temporal layer adds the sinusoidal PE to its input (`temporal_encoder.py`), which now happens once per block. That matches Eq. 5 applied per stacked block.
+- Update the module docstring in `strap.py`, which currently describes "(x3)" per encoder.
 
 ### Alternatives rejected
-_To be decided._
+
+| Alternative | Why rejected |
+| --- | --- |
+| Keep S, S, S, T, T, T | Contradicts Eq. 5 for the stacked layers, and is not what "the spatial and temporal encoder layers stacked N times" describes. |
+| Add PE only once, before the first temporal layer | Eq. 5 is written per temporal encoder. Adding PE again to an input that already carries it is harmless and simpler to keep as is. |
 
 ### Why this solution
-_To be decided._
+It is the most natural reading of the paper's equations and stacking sentence, it is a small change in one function, and it costs no extra parameters.
+Interleaving also lets later spatial layers attend over features that already contain temporal context, which is the stated aim ("more hierarchical and abstract representations").
+
+### Known costs
+- Changes the model: old checkpoints load, but they were trained with the other order, so their results do not carry over. Retrain together with problems 1–5.
+- Update `PAPER_VS_IMPLEMENTATION.md` §6 (the "3 S, then 3 T" note) and register item #6 once it is implemented.
 
 ---
 
@@ -390,56 +624,102 @@ That gain is small: about 0.02–0.03 m of 5 s lateral RMSE overall, and 7–10%
 
 ## Problem 9: Nearest-15 fallback / neighbour count
 
-**Status:** Open
+**Status:** Implemented (2026-10-20)
 
 ### Description
-_Placeholder._ When no vehicle passes the 0.005 risk threshold, the loader falls back to the 15 nearest vehicles, which the paper's rule would reject.
-The average neighbour count should be compared with the paper's 6.
+When no vehicle passes the 0.005 risk threshold, the loader falls back to the 15 nearest vehicles (`build_scenes`, `src/data/loader.py`).
+The paper's rule would reject these vehicles: *"We consider the vehicles with either S-field risk or O-field risk greater than 0.005 as interacting
+with the target vehicle and select them as its neighborhood vehicles"* (§IV-A). The fallback also inflates the average neighbour count we compare with the paper's 6.
 
 ### Solution
-_To be decided._
+**Remove the fallback.** If no vehicle passes the threshold, the scene has **0 neighbours** (target only). Otherwise keep the risk-ranked selection, capped at Nv = 15.
+
+The model already handles target-only scenes. They occur today when no candidate is present (`selected_ids = []`), so no new code path is introduced:
+- Spatial attention sees only the target itself (one valid key, no all-masked rows).
+- Goal loss is 0 for that sample (mask sum 0, denominator clamped to 1 in `goal_loss`).
+- Decoder risk is 0, so the mode weights are uniform and γ = 1, which is correct for a risk-free scene.
+
+**Collision evaluation fix (required with this change).** Collision pairs and their ground-truth minimum distance are currently built only
+from the selected neighbours (`rollout_pairs`, `gt_min_dist` in `src/pipeline.py`). Without the fallback, a car whose risk is ≤ 0.005 at frame 30
+but which later comes dangerously close would never be evaluated, and the test would only check conflicts the risk field already flagged.
+- Build the collision candidate set and its ground truth from **all vehicles present at frame 30** (or the nearest 15), independently of the model's neighbour selection.
+- Keep the model's inputs unchanged (risk-selected neighbours only).
+
+**Checks to add:**
+1. Log the share of samples with 0 neighbours and the average neighbour count, against the paper's 6 (≈ 3.2 expected with problem 4's [22] values).
+2. Report test RMSE separately for zero-neighbour samples.
+3. One small test: a batch in which every sample has 0 neighbours (`max_N = 1`, goal tensors `(B, 0, 4)`) passes through `model()` and `risk_scaled_loss` without errors or NaN.
+   This is unlikely at batch size 128, but possible with `--debug`.
 
 ### Alternatives rejected
-_To be decided._
+
+| Alternative | Why rejected |
+| --- | --- |
+| Keep the nearest-15 fallback | Adds vehicles the paper's rule rejects, inflates the neighbour count, and feeds non-interacting cars into the risk features and the decoder's risk field. |
+| Fallback to fewer nearest vehicles (e.g. nearest 1–3) | Still not the paper's rule; any k is arbitrary. |
+| Lower the threshold until every scene has a neighbour | Changes the paper's given 0.005 and makes every scene look interacting. |
 
 ### Why this solution
-_To be decided._
+It is exactly the paper's selection rule, it needs only the fallback branch deleted, and the model already supports target-only scenes.
+Decoupling the collision ground truth from neighbour selection keeps the collision evaluation honest: it measures all real conflicts,
+not only those the risk field already flagged.
+
+### Known costs (accepted)
+- Less context in calm scenes: a leader far ahead in free flow is no longer an input. This is the paper's design, and constant velocity already does well in such scenes.
+  The zero-neighbour RMSE check above shows whether it hurts.
+- The collision evaluation needs its own candidate set, a small change in `src/pipeline.py`.
 
 ---
 
 ## Problem 10: Table II risk-level breakdown missing
 
-**Status:** Open
+**Status:** Deprioritised (user decision, 2026-10-20)
 
 ### Description
-_Placeholder._ The paper reports RMSE for "collision in 1 s / 2 s / 3 s / 5 s" and non-collision scenes, but does not define how a scene is labelled.
+The paper reports RMSE for "collision in 1 s / 2 s / 3 s / 5 s" and non-collision scenes, but does not define how a scene is labelled.
 
 ### Solution
-_To be decided._
+**Not implemented for now.** The main results are overall and per-site RMSE (problems 5 and D), plus the collision evaluation (problem 9).
 
-### Alternatives rejected
-_To be decided._
-
-### Why this solution
-_To be decided._
+### Known cost (accepted)
+- No comparison with the paper's Table II, the table that shows STRAP-R's gain in high-risk scenes.
+- Revisit if the risk-scaled loss (STRAP-R vs STRAP-B) needs to be justified on high-risk scenes. Doing so first needs our own labelling
+  definition of "collision in N s" (e.g. ground-truth gap below a threshold within N s), stated as an assumption.
 
 ---
 
 ## D: How us-101 and i-80 are used together
 
-**Status:** Open (requested for discussion after problem 10)
+**Status:** Implemented (2026-10-20)
 
 ### Description
-_Placeholder._ Pooled vs per-site training and testing; how the 6 (location, period) segments from problem 1 are split; whether results are reported per site.
+How to train and evaluate with two freeway sites: pooled or per site, in what order, and how results are reported.
+How the 6 (location, period) segments are split is problem 5.
+
+Current code: both sites are concatenated into one table (`fetch_ngsim_multi`, with frame ids offset per site), one model is
+trained on the mix, train batches are shuffled, normalisation is fitted on train only, and a single overall RMSE is reported.
 
 ### Solution
-_To be decided._
+**Pooled training: one model on all 6 recordings of both sites.**
+1. Combine the 6 per-recording train parts from problem 5 into one training set. Shuffle it every epoch (already the case).
+2. Fit normalisation statistics and the k-means intention codebook on the pooled train set (already the case).
+3. Do not balance the sites and do not add a site-id feature. The sites are already about 49% / 51% by frames, and
+   problem 1b's relative lane removes the main site-specific input.
+4. Report test RMSE **overall and per site** (us-101, i-80), and optionally per period.
+5. Optional extra experiment, kept separate from the main result: cross-site generalisation (train on us-101, test on i-80, and vice versa).
 
 ### Alternatives rejected
-_To be decided._
+
+| Alternative | Why rejected |
+| --- | --- |
+| Per-site models | Halves the training data, and the paper reports one NGSIM model and number. |
+| Sequential training (one site, then fine-tune on the other) | Not standard for NGSIM. Fine-tuning drifts the model towards the last site and partly forgets the first (catastrophic forgetting). This only suits adapting to one target domain (e.g. HighD → NGSIM), which is not our goal. |
+| Site balancing / site-id input | Not needed with a ~49/51 mix; a site id would also let the model learn site-specific shortcuts. |
 
 ### Why this solution
-_To be decided._
+Pooled training is the NGSIM standard (CS-LSTM and the models that reuse its preprocessing, including STDAN, which STRAP compares against).
+It uses all the data, matches what the paper reports, and needs no code change beyond problems 1 and 5.
+Per-site RMSE is a small addition (`evaluate_trajectory` grouped by location) that shows whether one site is harder.
 
 ---
 

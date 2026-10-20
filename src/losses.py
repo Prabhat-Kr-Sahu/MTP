@@ -87,15 +87,19 @@ def risk_scaled_loss(
     gt_goals: torch.Tensor,
     pred_dist: torch.Tensor,
     gt_positions: torch.Tensor,
-    risk_values: torch.Tensor,    # (B,) or (B, K) risk values
+    risk_values: torch.Tensor,    # (B,), (B, 2) or (B, K, 2) risk values
     beta: float = 0.0,
     goal_mask: torch.Tensor = None,
 ) -> tuple:
     """
-    Risk-scaled total loss.
+    Risk-scaled total loss (paper Eq. 13-14).
 
-    gamma_risk = max(exp(R_s + R_o) - beta, 1)
+    gamma_risk = max(exp(R_s + R_o) - beta, 1), capped at 1e4
     L_total = gamma_risk * (L_goal + L_traj)
+
+    Pass ground-truth risk (src.risk.ground_truth_risk), not the decoder's
+    predicted risk field; it is detached here so the weight can never be
+    lowered through the model's own outputs (SOLUTIONS problem 2).
 
     Returns:
         total_loss, gamma_risk, goal_l, traj_l
@@ -112,14 +116,14 @@ def risk_scaled_loss(
     # Clamp the exponent BEFORE exp() to avoid float32 overflow:
     # exp(88.7) ≈ 1.4e38 < 3.4e38 (float32 max), exp(89) would overflow.
     # Also clamp the final gamma_risk to prevent inf*0=NaN when base loss is 0.
+    risk_values = risk_values.detach()
     if risk_values.dim() > 2:
         risk_sum = risk_values.sum(dim=-1).mean(dim=-1)
     elif risk_values.dim() > 1:
         risk_sum = risk_values.sum(dim=-1)
     else:
         risk_sum = risk_values
-    exp_arg = torch.clamp(risk_sum - beta, max=88.7)
-    gamma_risk = torch.exp(exp_arg)
+    gamma_risk = torch.exp(risk_sum.clamp(max=88.7)) - beta
     gamma_risk = torch.clamp(gamma_risk, min=1.0, max=1e4)
 
     total_loss = (gamma_risk * (goal_per_sample + traj_per_sample)).mean()

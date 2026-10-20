@@ -9,7 +9,7 @@ class _ZeroPredictor:
     def eval(self):
         return self
 
-    def __call__(self, states, mask):
+    def __call__(self, states, mask, dims=None):
         return torch.zeros(states.shape[0], 50, 5), None, None
 
 

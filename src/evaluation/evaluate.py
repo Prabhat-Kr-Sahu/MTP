@@ -32,8 +32,9 @@ def evaluate_trajectory(model, dataloader, device) -> Dict[str, float]:
             states, gt_positions, _, mask = batch[:4]
             states, gt_positions = states.to(device), gt_positions.to(device)
             mask = mask.to(device) if mask is not None else None
+            dims = batch[5].to(device) if len(batch) > 5 else None
 
-            traj_dist, _, _ = model(states, mask)
+            traj_dist, _, _ = model(states, mask, dims)
             squared_displacement = (
                 traj_dist[:, :, :2] - gt_positions
             ).square().sum(dim=-1)

@@ -164,7 +164,7 @@ flowchart TD
     style OUT stroke-width:2px
 ```
 
-The target's encoding and the neighbours' encodings split after the temporal encoder. The neighbour side becomes risk queries, which then read the target's history through cross-attention. The dashed box is our design; the paper does not specify it. Paper Fig. 2 suggests interleaving the encoders (S, T, S, T, S, T); we run 3 S, then 3 T.
+The target's encoding and the neighbours' encodings split after the temporal encoder. The neighbour side becomes risk queries, which then read the target's history through cross-attention. The dashed box is our design; the paper does not specify it. Paper Fig. 2 suggests interleaving the encoders (S, T, S, T, S, T); we now interleave them (SOLUTIONS problem 6). Before that fix we ran 3 S, then 3 T.
 
 | Stage | Paper says | We implement | Status | Assumption and reasoning |
 | --- | --- | --- | --- | --- |
@@ -255,15 +255,17 @@ We made 25 assumptions or choices that are not in the paper. Five are high impac
 
 Fix the data keying first. Every other result, including the collision ground truth, sits on top of it.
 
-- [ ] Key frames and vehicles by recording period: use `global_time`, or add a period id to `vehicle_id` and `frame_id` (register #1).
-- [ ] Detach γ_risk in `risk_scaled_loss`, or compute R from observed inputs (#2).
-- [ ] Freeze the intention codebook: `register_buffer` instead of `nn.Parameter` (#3).
-- [ ] Re-derive γx, γy from reference [22] or from Fig. 1(b), then log the share of non-zero S-field values (#4).
-- [ ] Split each location by time separately, or report test RMSE per location, so the test set covers both us-101 and i-80 (#5).
-- [ ] Interleave the encoder layers (S, T, S, T, S, T) to match Fig. 2 (#6).
+Ticked items are implemented as described in [SOLUTIONS_PAPER_VS_IMPLEMENTATION.md](SOLUTIONS_PAPER_VS_IMPLEMENTATION.md) (γ_risk from ground truth, [22] calibration, per-recording split, nearest-15 fallback removed). #7, #8 and Table II are deprioritised there. The rest of this document describes the code before those fixes.
+
+- [x] Key frames and vehicles by recording period: use `global_time`, or add a period id to `vehicle_id` and `frame_id` (register #1).
+- [x] Detach γ_risk in `risk_scaled_loss`, or compute R from observed inputs (#2).
+- [x] Freeze the intention codebook: `register_buffer` instead of `nn.Parameter` (#3).
+- [x] Re-derive γx, γy from reference [22] or from Fig. 1(b), then log the share of non-zero S-field values (#4).
+- [x] Split each location by time separately, or report test RMSE per location, so the test set covers both us-101 and i-80 (#5).
+- [x] Interleave the encoder layers (S, T, S, T, S, T) to match Fig. 2 (#6).
 - [ ] Use a fixed origin (the last observed target position) for history positions, so the target's own path is visible (#7).
 - [ ] Derive lateral velocity from Δ`local_x` / Δt (#8).
-- [ ] Log how often the nearest-15 fallback fires, and the average neighbour count, against the paper's 6 (#11).
+- [x] Log how often the nearest-15 fallback fires, and the average neighbour count, against the paper's 6 (#11).
 - [ ] Implement the Table II risk-level breakdown once "collision in N s" is defined.
 
 **Paper typos to note in the report:** Eq. 4 uses H̃ₜ where H̃ₛ is meant. Eq. 7 gives C as (Nᵥ+1) × Tₕ × D while Eq. 3–4 use Tₕ × (Nᵥ+1) × D. Eq. 10 gives C⁰ ∈ ℝ^(T_f × D) where Tₕ is meant. §III-B cites [21] for the S/O field, but the naming matches [22].

@@ -18,6 +18,7 @@ from src.data.normalization import (
 )
 from src.evaluation.evaluate import horizon_rmse
 from src.intentions import build_codebook_from_samples, save_codebook
+from src.risk import ground_truth_risk
 
 
 def train_one_epoch(model, optimizer, dataloader, device, use_risk_loss=True, beta=0.0):
@@ -29,16 +30,17 @@ def train_one_epoch(model, optimizer, dataloader, device, use_risk_loss=True, be
     num_batches = 0
 
     for batch_idx, batch in enumerate(dataloader):
-        states, gt_positions, gt_goals, mask, goal_mask = (t.to(device) for t in batch)
+        states, gt_positions, gt_goals, mask, goal_mask, dims = (t.to(device) for t in batch)
 
         # Forward pass
-        traj_dist, pred_goals, risk_field = model(states, mask)
+        traj_dist, pred_goals, _ = model(states, mask, dims)
 
-        # Compute loss
+        # Compute loss; gamma_risk comes from the TRUE future (problem 2).
         if use_risk_loss:
             loss, gamma, gl, tl = risk_scaled_loss(
                 pred_goals, gt_goals, traj_dist, gt_positions,
-                risk_field, beta, goal_mask=goal_mask
+                ground_truth_risk(gt_positions, gt_goals, goal_mask, dims),
+                beta, goal_mask=goal_mask,
             )
         else:
             loss, gl, tl = basic_loss(
@@ -60,8 +62,8 @@ def train_one_epoch(model, optimizer, dataloader, device, use_risk_loss=True, be
     return total_loss / num_batches, total_goal_loss / num_batches, total_traj_loss / num_batches
 
 
-def validate(model, dataloader, device, use_risk_loss=True, beta=0.0):
-    """Validate the model using sample-weighted per-horizon RMSE."""
+def validate(model, dataloader, device):
+    """Validate with the basic (unweighted) loss and sample-weighted per-horizon RMSE."""
     model.eval()
     squared_error_sum = None
     sample_count = 0
@@ -70,21 +72,15 @@ def validate(model, dataloader, device, use_risk_loss=True, beta=0.0):
 
     with torch.no_grad():
         for batch in dataloader:
-            states, gt_positions, gt_goals, mask, goal_mask = (t.to(device) for t in batch)
+            states, gt_positions, gt_goals, mask, goal_mask, dims = (t.to(device) for t in batch)
 
-            traj_dist, pred_goals, _ = model(states, mask)
+            traj_dist, pred_goals, _ = model(states, mask, dims)
 
-            # Compute loss for early stopping
-            if use_risk_loss:
-                loss, _, _, _ = risk_scaled_loss(
-                    pred_goals, gt_goals, traj_dist, gt_positions,
-                    torch.zeros(1, device=device), beta, goal_mask=goal_mask
-                )
-            else:
-                loss, _, _ = basic_loss(
-                    pred_goals, gt_goals, traj_dist, gt_positions,
-                    goal_mask=goal_mask,
-                )
+            # Basic loss for model selection (same for STRAP-B and STRAP-R)
+            loss, _, _ = basic_loss(
+                pred_goals, gt_goals, traj_dist, gt_positions,
+                goal_mask=goal_mask,
+            )
             total_loss += loss.item()
             num_batches += 1
 
@@ -191,9 +187,7 @@ def train(
         train_loss, gl, tl = train_one_epoch(
             model, optimizer, train_dl, DEVICE, use_risk_loss, beta
         )
-        val_loss, val_metrics = validate(
-            model, val_dl, DEVICE, use_risk_loss, beta
-        )
+        val_loss, val_metrics = validate(model, val_dl, DEVICE)
         val_rmse = val_metrics["rmse_avg"]
 
         scheduler.step()

@@ -15,14 +15,15 @@ class STRAP(nn.Module):
 
     Architecture:
     - Motion Encoder: FC + ELU + LSTM
-    - Spatial Encoder: MultiHeadAttn + GLU + LayerNorm (x3)
-    - Temporal Encoder: PE + MultiHeadAttn + GLU + LayerNorm (x3)
+    - Spatial-temporal encoder, N = 3 interleaved blocks (S, T, S, T, S, T):
+      Spatial: MultiHeadAttn + GLU + LayerNorm; Temporal: PE + MultiHeadAttn + GLU + LayerNorm
     - Goal Predictor: MLP for neighbor goals
     - Risk-Attentive Decoder: cross-attention + LSTM trajectory generator
 
     Input:
         states: (B, T_h, N_v+1, F) vehicle states with risk features
         mask: (B, N_v+1) boolean mask for real vehicles
+        dims: (B, N_v+1, 2) raw [length, width] in metres, for the decoder risk field
     Output:
         traj_dist: (B, T_f, 5) [mu_x, mu_y, sigma_x, sigma_y, rho]
         neighbor_goals: (B, N_v, 4)
@@ -66,7 +67,7 @@ class STRAP(nn.Module):
             d_model, num_heads, k_intentions, num_decoder_layers, dropout
         )
 
-    def forward(self, states: torch.Tensor, mask: torch.Tensor = None):
+    def forward(self, states: torch.Tensor, mask: torch.Tensor = None, dims: torch.Tensor = None):
         """
         Args:
             states: (B, T_h, N_v+1, F) vehicle states with risk features
@@ -81,15 +82,11 @@ class STRAP(nn.Module):
         # Motion encoding
         H_m = self.motion_encoder(states)  # (B, T_h, N, D)
 
-        # Spatial encoding (stacked layers)
-        H_s = H_m
-        for enc in self.spatial_encoders:
-            H_s = enc(H_s, mask)
-
-        # Temporal encoding (stacked layers)
-        C = H_s
-        for enc in self.temporal_encoders:
-            C = enc(C, mask)
+        # Spatial-temporal encoder: one (spatial -> temporal) block stacked N times,
+        # so every temporal layer reads a spatial output (paper Eq. 5-7, problem 6).
+        C = H_m
+        for spatial, temporal in zip(self.spatial_encoders, self.temporal_encoders):
+            C = temporal(spatial(C, mask), mask)
 
         # Separate target and neighbors
         target_enc = C[:, :, 0, :]  # (B, T_h, D) target vehicle encoding
@@ -101,7 +98,7 @@ class STRAP(nn.Module):
         # Risk-attentive decoding
         neighbor_mask = mask[:, 1:] if mask is not None else None
         traj_dist, risk_field = self.risk_decoder(
-            target_enc, neighbor_goals, neighbor_mask
+            target_enc, neighbor_goals, neighbor_mask, dims
         )
 
         return traj_dist, neighbor_goals, risk_field

@@ -13,7 +13,7 @@ from src.config import (
     BETA_LOSS, CHECKPOINT_DIR, DEBUG_MAX_ROWS, DEVICE, DT, INTENTIONS_FILE,
     LEARNING_RATE, LOG_DIR, NGSIM_LOCATIONS, NORMALIZATION_FILE, NUM_EPOCHS,
 )
-from src.data.loader import NGSIMDataLoader, create_dataloader
+from src.data.loader import NGSIMDataLoader, create_dataloader, location_of
 from src.data.normalization import apply_normalization, load_stats, normalize_samples
 from src.evaluation.collision import (
     collision_metrics_from_labels, compute_pr_auc, compute_roc_auc,
@@ -23,7 +23,6 @@ from src.evaluation.risk_metrics import METRICS, is_collision
 from src.intentions import load_codebook
 from src.logger import get_logger
 from src.models.strap import STRAP
-from src.risk import pairwise_distance
 from src.train import train
 
 logger = get_logger()
@@ -50,7 +49,11 @@ def build_model():
 
 
 def load_trained(model):
-    """Load best checkpoint + intention codebook; return normalization stats."""
+    """Load best checkpoint; return normalization stats.
+
+    The intention codebook is a buffer saved in the checkpoint. The .pkl is
+    only checked against it, never loaded over it (SOLUTIONS problem 3).
+    """
     checkpoint = f"{CHECKPOINT_DIR}/best_model.pt"
     if not os.path.exists(checkpoint):
         raise SystemExit(f"No checkpoint at {checkpoint}. Run --mode train first.")
@@ -58,30 +61,34 @@ def load_trained(model):
     model.eval()
     intentions = f"{CHECKPOINT_DIR}/{INTENTIONS_FILE}"
     if os.path.exists(intentions):
-        model.risk_decoder.set_intentions(torch.from_numpy(load_codebook(intentions)))
+        saved = torch.from_numpy(load_codebook(intentions)).to(DEVICE)
+        drift = (model.risk_decoder.intention_means - saved).norm(dim=-1).max().item()
+        if drift > 1e-4:
+            logger.warning(
+                f"{INTENTIONS_FILE} differs from the checkpoint's codebook "
+                f"(max {drift:.3f}); using the checkpoint's"
+            )
     norm_path = f"{CHECKPOINT_DIR}/{NORMALIZATION_FILE}"
     return load_stats(norm_path) if os.path.exists(norm_path) else None
 
 
-def rollout_pairs(model, sample, norm_stats):
-    """Predicted target and constant-velocity neighbour futures, both relative
-    to the target's last observed position (the frame create_sample uses)."""
-    raw_states, _, _, mask, _, _, _ = sample
+def predict_target(model, sample, norm_stats):
+    """Predicted target future (1, T_f, 2), relative to its last observed
+    position (the frame create_sample uses)."""
+    raw_states, _, _, mask = sample[:4]
+    dims = sample[7].to(DEVICE) if len(sample) > 7 else None
     states = apply_normalization(raw_states, norm_stats) if norm_stats else raw_states
     with torch.no_grad():
-        traj_dist, _, _ = model(states.to(DEVICE), mask.to(DEVICE))
-    target = traj_dist[:, :, :2]
-    T_f = traj_dist.shape[1]
-    t = torch.arange(1, T_f + 1, device=DEVICE).view(1, T_f, 1, 1).float() * DT
-    position = raw_states[:, -1, 1:, :2].to(DEVICE)
-    velocity = raw_states[:, -1, 1:, 2:4].to(DEVICE) * 30.0  # undo create_sample's /30
-    return target, position.unsqueeze(1) + velocity.unsqueeze(1) * t
+        traj_dist, _, _ = model(states.to(DEVICE), mask.to(DEVICE), dims)
+    return traj_dist[:, :, :2]
 
 
-def gt_min_dist(scene, T_h, T_f):
-    """Ground-truth minimum distance target-to-each-neighbour, shape (N_v,)."""
-    future = torch.from_numpy(scene["frames"][T_h:T_h + T_f, :, :2]).float()
-    return pairwise_distance(future[None, :, 0], future[None, :, 1:]).min(dim=1).values[0]
+def constant_velocity(position, velocity, T_f):
+    """Roll (M, 2) positions forward at constant (M, 2) velocity -> (1, T_f, M, 2)."""
+    t = torch.arange(1, T_f + 1, device=DEVICE).view(T_f, 1, 1).float() * DT
+    position = torch.as_tensor(position, dtype=torch.float32, device=DEVICE)
+    velocity = torch.as_tensor(velocity, dtype=torch.float32, device=DEVICE)
+    return (position + velocity * t).unsqueeze(0)
 
 
 def _auc(fn, scores, gt, higher_is_riskier):
@@ -173,12 +180,29 @@ def cmd_eval(args):
     _, _, test_samples = make_loader(args).get_splits()
     if norm_stats:
         test_samples = normalize_samples(test_samples, norm_stats)
-    test_dl = create_dataloader(test_samples, batch_size=32, shuffle=False)
-    print_metrics(evaluate_trajectory(model, test_dl, DEVICE), label="NGSIM Test Split")
+    if not test_samples:
+        raise SystemExit("No test samples available.")
+    # Overall, per site (problem D) and target-only scenes (problem 9).
+    groups = {"NGSIM Test Split": test_samples}
+    for sample in test_samples:
+        groups.setdefault(f"site {location_of(sample[4][0])}", []).append(sample)
+        if sample[0].shape[2] == 1:
+            groups.setdefault("zero-neighbour samples", []).append(sample)
+    for label, samples in groups.items():
+        test_dl = create_dataloader(samples, batch_size=32, shuffle=False)
+        print_metrics(
+            evaluate_trajectory(model, test_dl, DEVICE),
+            label=f"{label} (n={len(samples)})",
+        )
 
 
 def cmd_collisions(args):
-    """Score every test target-neighbour pair with all METRICS in one pass."""
+    """Score every test target-candidate pair with all METRICS in one pass.
+
+    Candidates are the nearest vehicles present at the last history frame,
+    not the model's risk-selected neighbours, so conflicts the risk field
+    missed are evaluated too (SOLUTIONS problem 9).
+    """
     model = build_model()
     norm_stats = load_trained(model)
     loader = make_loader(args)
@@ -192,14 +216,23 @@ def cmd_collisions(args):
     scores = {name: [] for name in METRICS}
     gt_labels, pairs = [], []
     for i, sample in enumerate(test_samples):
-        target, neighbors = rollout_pairs(model, sample, norm_stats)
-        gt_d = gt_min_dist(loader.scenes[scene_indices[i]], T_h, T_f)
-        n_eval = min(neighbors.shape[2], gt_d.shape[0])
+        ids, position, velocity, future = loader.collision_candidates(
+            loader.scenes[scene_indices[i]]
+        )
+        # Pairs whose candidate leaves the road before the target's horizon
+        # starts have no ground truth; drop them.
+        seen = np.isfinite(future[..., 0]).any(axis=0)
+        if not seen.any():
+            continue
+        ids, position, velocity, future = ids[seen], position[seen], velocity[seen], future[:, seen]
+        target = predict_target(model, sample, norm_stats)
+        neighbors = constant_velocity(position, velocity, T_f)
+        gt_target = sample[1][0].numpy()[:, None, :]  # (T_f, 1, 2), same origin
+        gt_d = np.nanmin(np.linalg.norm(future - gt_target, axis=-1), axis=0)
         for name, (fn, _, _) in METRICS.items():
-            scores[name].extend(fn(target, neighbors, dt=DT, threshold=threshold)[0, :n_eval].tolist())
-        gt_labels.extend((gt_d[:n_eval] < threshold).int().tolist())
-        vehicle_ids = sample[4]
-        pairs.extend((vehicle_ids[0], vehicle_ids[j + 1]) for j in range(n_eval))
+            scores[name].extend(fn(target, neighbors, dt=DT, threshold=threshold)[0].tolist())
+        gt_labels.extend((gt_d < threshold).astype(int).tolist())
+        pairs.extend((sample[4][0], vehicle_id) for vehicle_id in ids)
         if (i + 1) % 100 == 0:
             logger.info(f"Processed {i + 1}/{len(test_samples)} samples...")
     gt = np.array(gt_labels)

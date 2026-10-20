@@ -33,11 +33,9 @@ from typing import List, Optional, Tuple, Dict
 _API_BASE = "https://data.transportation.gov/resource/8ect-6jqj.json"
 _FT_TO_M = 0.3048  # 1 foot = 0.3048 metres
 
-from src.risk import compute_s_field
-from src.risk import compute_o_field, closest_approach
+from src.risk import default_dims, pair_risk
 from src.config import (
-    ALPHA_X, ALPHA_Y, BETA_1, BETA_2, D_STAR, DATA_DIR, GAMMA_X, GAMMA_Y,
-    N_V, RISK_THRESHOLD, T_STAR, TEST_RATIO, TF_STEPS, TH_STEPS, TRAIN_RATIO, VAL_RATIO,
+    DATA_DIR, N_V, RISK_THRESHOLD, TEST_RATIO, TF_STEPS, TH_STEPS, TRAIN_RATIO, VAL_RATIO,
 )
 
 # Columns to request from the API (skip arterial-only fields)
@@ -280,6 +278,50 @@ def fetch_ngsim(
     return df
 
 
+# Fixed per-site number for the unique vehicle key (problem 1).
+_LOCATION_NUMBERS = {"us-101": 1, "i-80": 2, "lankershim": 3, "peachtree": 4}
+_LOCATION_NAMES = {number: name for name, number in _LOCATION_NUMBERS.items()}
+# Empty frames between recordings: one full window, so no window straddles two.
+_SEGMENT_GAP = TH_STEPS + TF_STEPS
+
+
+def location_of(vehicle_id) -> str:
+    """Site name encoded in a unique vehicle id (see _separate_recordings)."""
+    return _LOCATION_NAMES.get(int(vehicle_id) // 1_000_000, "unknown")
+
+
+def _separate_recordings(df: pd.DataFrame, location_number: int) -> pd.DataFrame:
+    """Give every (location, recording period) its own vehicle ids (problem 1).
+
+    NGSIM records each site in three 15-minute periods; each restarts
+    ``frame_id`` and reuses ``vehicle_id``. The period is exact from
+    ``global_time // 100 - frame_id`` (constant within a recording).
+    vehicle_id becomes location*1e6 + period*1e5 + original id.
+    """
+    df = df.copy()
+    df["frame_id"] = df["frame_id"].astype(np.int64)
+    clock = df["global_time"].astype(np.int64) // 100 - df["frame_id"]
+    df["period"] = clock.rank(method="dense").astype(np.int64)
+
+    key = ["vehicle_id", "global_time"]
+    duplicated = df.duplicated(key, keep=False)
+    if duplicated.any():
+        conflicting = int(df[duplicated].drop_duplicates().duplicated(key).sum())
+        logger.info(
+            f"[NGSIMLoader] Dropping {int(df.duplicated(key).sum()):,} duplicate rows "
+            f"({conflicting:,} duplicate groups differ in other columns)"
+        )
+        df = df.drop_duplicates(key).reset_index(drop=True)
+
+    df["orig_vehicle_id"] = df["vehicle_id"].astype(np.int64)
+    if df["orig_vehicle_id"].max() >= 100_000 or df["period"].max() >= 10:
+        raise ValueError("vehicle id or period count too large for the unique key")
+    df["vehicle_id"] = (
+        location_number * 1_000_000 + df["period"] * 100_000 + df["orig_vehicle_id"]
+    )
+    return df
+
+
 def fetch_ngsim_multi(
     locations: List[str],
     cache_dir: str = DATA_DIR,
@@ -288,12 +330,12 @@ def fetch_ngsim_multi(
     max_rows_per_location: Optional[int] = None,
     force_download: bool = False,
 ) -> pd.DataFrame:
-    """Fetch NGSIM data for multiple locations and concatenate.
+    """Fetch NGSIM data for one or more locations and concatenate.
 
-    Each location's ``frame_id`` is offset so that combined data has a
-    monotonic, non-overlapping frame timeline — this lets the temporal
-    split in :class:`NGSIMDataLoader.get_splits` work correctly across
-    locations.
+    Every (location, recording period) gets its own vehicle ids and its own
+    ``frame_id`` range, separated by one window of empty frames, so no key
+    is shared by two recordings and no window straddles two of them
+    (SOLUTIONS problem 1).
 
     Args:
         locations:            List of NGSIM locations, e.g. ['us-101', 'i-80'].
@@ -304,7 +346,8 @@ def fetch_ngsim_multi(
         force_download:       Re-download even if cached.
 
     Returns:
-        Concatenated DataFrame with offset frame_ids.
+        Concatenated DataFrame with unique vehicle ids, offset frame_ids and
+        ``location`` / ``period`` / ``orig_vehicle_id`` columns.
     """
     frames = []
     frame_offset = 0
@@ -314,11 +357,18 @@ def fetch_ngsim_multi(
             app_token=app_token, max_rows=max_rows_per_location,
             force_download=force_download,
         )
-        # Offset frame_ids to prevent overlap across locations
-        df["frame_id"] = df["frame_id"].astype(np.int64) + frame_offset
+        df = _separate_recordings(df, _LOCATION_NUMBERS[loc])
+        df["location"] = loc
+        for period in sorted(df["period"].unique()):
+            rows = (df["period"] == period).to_numpy()
+            period_frames = df.loc[rows, "frame_id"]
+            df.loc[rows, "frame_id"] = period_frames - period_frames.min() + frame_offset
+            logger.info(
+                f"[NGSIMLoader] '{loc}' period {period}: {rows.sum():,} rows, "
+                f"frame_id offset={frame_offset}"
+            )
+            frame_offset += int(period_frames.max() - period_frames.min()) + 1 + _SEGMENT_GAP
         frames.append(df)
-        frame_offset = int(df["frame_id"].max()) + 1
-        logger.info(f"[NGSIMLoader] Concatenated '{loc}': {len(df):,} rows, frame_id offset={frame_offset}")
     combined = pd.concat(frames, ignore_index=True)
     logger.info(f"[NGSIMLoader] Combined {len(locations)} locations: {len(combined):,} total rows")
     return combined
@@ -361,21 +411,24 @@ def create_sample(scene: dict, target_idx: int = 0, T_h: int = 30, T_f: int = 50
         v_type_f = float(scene["vehicle_types"][v]) / 2.0
         lane_history = scene.get("lane_history")
         if lane_history is None:
-            v_lane = np.full(T_h, scene["lane_ids"][v], dtype=np.float32)
+            lanes = np.tile(np.asarray(scene["lane_ids"], dtype=np.float32), (T_h, 1))
         else:
-            v_lane = np.asarray(lane_history[:T_h, v], dtype=np.float32)
+            lanes = np.asarray(lane_history[:T_h], dtype=np.float32)
+        # Problem 1b: lane relative to the target at the same timestep
+        # (NGSIM lane 1 = leftmost, so left = +, right = -; target = 0).
+        v_lane = lanes[:, target_idx] - lanes[:, v]
         v_acc = all_hist[:, v, 4:5] if all_hist.shape[-1] > 4 else np.zeros((T_h, 1), dtype=np.float32)
         v_length_f = float(scene["vehicle_lengths"][v]) / 10.0
         v_width_f = float(scene["vehicle_widths"][v]) / 3.0
 
-        # Simple state: relative pos + abs vel + type + lane + dimensions
+        # Simple state: relative pos + abs vel + type + relative lane + dimensions
         # Normalize by scene length
         feat = torch.cat([
             v_rel_pos,
             v_vel / 30.0,  # normalize velocity
             torch.from_numpy(v_acc / 10.0).float(),
             torch.full((T_h, 1), v_type_f),
-            torch.from_numpy((v_lane / 2.0).reshape(T_h, 1)).float(),
+            torch.from_numpy(v_lane.reshape(T_h, 1)).float(),
             torch.full((T_h, 1), v_length_f),
             torch.full((T_h, 1), v_width_f),
         ], dim=-1)  # (T_h, 11) including the two risk features
@@ -384,24 +437,19 @@ def create_sample(scene: dict, target_idx: int = 0, T_h: int = 30, T_f: int = 50
     # Stack: (T_h, N_v+1, F)
     states = torch.stack(states, dim=1)  # (T_h, N_v+1, F)
 
-    # ------ Compute real S-field and O-field risk features ------
-    # S-field: spatial proximity risk at each timestep
+    # ------ S-field and O-field risk features ([22] calibration) ------
+    dims = torch.from_numpy(np.stack(
+        [scene["vehicle_lengths"], scene["vehicle_widths"]], axis=-1
+    ).astype(np.float32))  # (N, 2) [length, width] in metres
     rel_pos_t = torch.from_numpy(rel_pos).float()  # (T_h, N, 2)
-    delta_x = rel_pos_t[:, :, 0]  # (T_h, N)
-    delta_y = rel_pos_t[:, :, 1]  # (T_h, N)
-    s_risk = compute_s_field(delta_x, delta_y, GAMMA_X, GAMMA_Y, ALPHA_X, ALPHA_Y)  # (T_h, N)
-    s_risk[:, target_idx] = 0.0  # self-risk = 0
-
-    # O-field: future collision risk approximated via velocity-based TTC
     vel_all = torch.from_numpy(all_hist[:, :, 2:4]).float()  # (T_h, N, 2)
     target_vel = vel_all[:, target_idx:target_idx + 1, :]  # (T_h, 1, 2)
-    rel_vel = vel_all - target_vel  # (T_h, N, 2)
-    min_distance, time_to_closest = closest_approach(rel_pos_t, rel_vel)
-    o_risk = compute_o_field(
-        min_distance, time_to_closest.clamp(min=0.1),
-        D_STAR, T_STAR, BETA_1, BETA_2,
-    )
-    o_risk[:, target_idx] = 0.0  # self-risk = 0
+    s_risk, o_risk = pair_risk(
+        rel_pos_t, vel_all - target_vel, target_vel.norm(dim=-1),
+        dims[target_idx], dims,
+    )  # (T_h, N) each
+    s_risk[:, target_idx] = 0.0  # self-risk = 0
+    o_risk[:, target_idx] = 0.0
 
     risk_features = torch.stack([s_risk, o_risk], dim=-1)  # (T_h, N, 2)
     states = torch.cat([states, risk_features], dim=-1)  # (T_h, N_v+1, F+2)
@@ -450,7 +498,8 @@ def create_sample(scene: dict, target_idx: int = 0, T_h: int = 30, T_f: int = 50
     # Keep track of vehicle IDs for logging
     vehicle_ids = scene["vehicle_ids"]
 
-    return states, target_traj, neighbor_goals, mask, vehicle_ids, goal_mask, target_origin
+    return (states, target_traj, neighbor_goals, mask, vehicle_ids, goal_mask,
+            target_origin, dims.unsqueeze(0))
 
 
 # ---------------------------------------------------------------------------
@@ -514,22 +563,14 @@ class NGSIMDataLoader:
         Returns:
             The full DataFrame for the selected location(s).
         """
-        if len(self.locations) > 1:
-            self.df = fetch_ngsim_multi(
-                locations=self.locations,
-                cache_dir=self.data_dir,
-                app_token=self.app_token,
-                max_rows_per_location=self.max_rows,
-                force_download=force_download,
-            )
-        else:
-            self.df = fetch_ngsim(
-                location=self.locations[0],
-                cache_dir=self.data_dir,
-                app_token=self.app_token,
-                max_rows=self.max_rows,
-                force_download=force_download,
-            )
+        # Always the multi path, so one location and --debug get the same keys.
+        self.df = fetch_ngsim_multi(
+            locations=self.locations,
+            cache_dir=self.data_dir,
+            app_token=self.app_token,
+            max_rows_per_location=self.max_rows,
+            force_download=force_download,
+        )
         return self.df
 
     # ------------------------------------------------------------------ #
@@ -585,14 +626,18 @@ class NGSIMDataLoader:
             longitudinal = frame_df["local_y"].to_numpy()[frame_order]
             lateral = frame_df["local_x"].to_numpy()[frame_order]
             velocity = frame_df["v_vel"].to_numpy()[frame_order]
+            sizes = frame_df[["v_length", "v_width"]].to_numpy(dtype=np.float32)[frame_order]
             vehicle_indices = np.searchsorted(all_vehicle_ids, frame_vehicle_ids)
             frame_mask = 0
             for vehicle_index in np.unique(vehicle_indices):
                 frame_mask |= 1 << int(vehicle_index)
             frame_masks[int(frame_id) - frame_min] = frame_mask
             frame_data[int(frame_id)] = (
-                frame_vehicle_ids, longitudinal, lateral, velocity
+                frame_vehicle_ids, longitudinal, lateral, velocity, sizes
             )
+        # Kept for collision_candidates (problem 9).
+        self._vehicle_data = vehicle_data
+        self._frame_data = frame_data
 
         prefix_masks = [0] * len(frame_masks)
         suffix_masks = [0] * len(frame_masks)
@@ -646,7 +691,8 @@ class NGSIMDataLoader:
                 neighbor_ids = present_vehicle_ids[
                     present_vehicle_ids != target_vehicle_id
                 ]
-                midpoint_vehicle_ids, midpoint_longitudinal, midpoint_lateral, midpoint_velocity = midpoint_data
+                (midpoint_vehicle_ids, midpoint_longitudinal, midpoint_lateral,
+                 midpoint_velocity, midpoint_sizes) = midpoint_data
                 target_position = np.searchsorted(midpoint_vehicle_ids, target_vehicle_id)
                 if len(neighbor_ids):
                     midpoint_positions = np.searchsorted(midpoint_vehicle_ids, neighbor_ids)
@@ -666,21 +712,18 @@ class NGSIMDataLoader:
                     rel_vel = torch.from_numpy(np.stack(
                         [relative_velocity, np.zeros_like(relative_velocity)], axis=-1
                     ))  # NGSIM gives longitudinal speed only
-                    risk_s = compute_s_field(
-                        rel_pos[:, 0], rel_pos[:, 1], GAMMA_X, GAMMA_Y, ALPHA_X, ALPHA_Y
-                    ).numpy()
-                    min_distance, time_to_closest = closest_approach(rel_pos, rel_vel)
-                    risk_o = compute_o_field(
-                        min_distance, time_to_closest, D_STAR, T_STAR, BETA_1, BETA_2
-                    ).numpy()
+                    sizes = torch.from_numpy(midpoint_sizes)
+                    risk_s, risk_o = pair_risk(
+                        rel_pos, rel_vel, abs(float(midpoint_velocity[target_position])),
+                        sizes[target_position].double(), sizes[midpoint_positions].double(),
+                    )
+                    risk_s, risk_o = risk_s.numpy(), risk_o.numpy()
                     combined_risk = risk_s + risk_o
+                    # Paper IV-A rule only: no nearest-k fallback (problem 9),
+                    # so a scene with no interacting vehicle is target-only.
                     interacting = (risk_s > RISK_THRESHOLD) | (risk_o > RISK_THRESHOLD)
-                    if np.any(interacting):
-                        ranked_indices = np.argsort(-combined_risk, kind="stable")
-                        ranked_indices = ranked_indices[interacting[ranked_indices]]
-                    else:
-                        geometric_distance = np.sqrt(delta_long ** 2 + delta_lat ** 2)
-                        ranked_indices = np.argsort(geometric_distance, kind="stable")
+                    ranked_indices = np.argsort(-combined_risk, kind="stable")
+                    ranked_indices = ranked_indices[interacting[ranked_indices]]
                     selected_ids = neighbor_ids[
                         ranked_indices[:self.max_neighbors]
                     ].tolist()
@@ -792,7 +835,49 @@ class NGSIMDataLoader:
                 break
 
         logger.info(f"[NGSIMLoader] Built {len(samples)} training samples")
+        if samples:
+            # Problem 9 check: paper reports 6 neighbours on average.
+            counts = np.array([sample[0].shape[2] - 1 for sample in samples])
+            logger.info(
+                f"[NGSIMLoader] Neighbours per sample: mean={counts.mean():.2f} "
+                f"(paper: 6), zero-neighbour share={np.mean(counts == 0):.1%}"
+            )
         return samples
+
+    def collision_candidates(self, scene: dict, k: int = N_V):
+        """Ground-truth collision candidates, independent of neighbour selection.
+
+        The k nearest vehicles present at the last history frame (problem 9).
+        All outputs are relative to the target's position at that frame
+        (the origin create_sample uses for labels).
+
+        Returns:
+            ids:      (M,) vehicle ids, M <= k
+            position: (M, 2) [longitudinal, lateral] at the last history frame
+            velocity: (M, 2) [speed, 0]
+            future:   (T_f, M, 2) true future positions, NaN where absent
+        """
+        last_frame = int(scene["frame_id_start"]) + self.history_frames - 1
+        ids, longitudinal, lateral, speed, _ = self._frame_data[last_frame]
+        target = np.searchsorted(ids, scene["vehicle_ids"][0])
+        others = np.flatnonzero(ids != ids[target])
+        position = np.stack([
+            longitudinal[others] - longitudinal[target],
+            lateral[others] - lateral[target],
+        ], axis=-1)
+        order = np.argsort(np.linalg.norm(position, axis=-1), kind="stable")[:k]
+        nearest, position = others[order], position[order]
+        velocity = np.stack([speed[nearest], np.zeros(len(nearest))], axis=-1)
+
+        future_frames = np.arange(last_frame + 1, last_frame + 1 + self.future_frames)
+        future = np.full((self.future_frames, len(nearest), 2), np.nan)
+        for column, vehicle_id in enumerate(ids[nearest]):
+            data = self._vehicle_data[int(vehicle_id)]
+            rows = np.searchsorted(data["frames"], future_frames).clip(max=len(data["frames"]) - 1)
+            valid = data["frames"][rows] == future_frames
+            future[valid, column, 0] = data["local_y"][rows[valid]] - longitudinal[target]
+            future[valid, column, 1] = data["local_x"][rows[valid]] - lateral[target]
+        return ids[nearest], position, velocity, future
 
     # ------------------------------------------------------------------ #
     #  Utilities                                                          #
@@ -857,48 +942,57 @@ class NGSIMDataLoader:
         ):
             raise ValueError("train_ratio, val_ratio, and test_ratio must be positive and sum to 1")
 
-        if self.df is not None and "frame_id" in self.df:
-            timeline = np.sort(self.df["frame_id"].unique())
+        # Problem 5 (option B): cut EACH recording (location, period) by time
+        # 70/10/20 with a one-window guard gap after each cut, then pool.
+        if self.df is not None and {"location", "period"} <= set(self.df.columns):
+            timelines = [
+                np.sort(frames.unique())
+                for _, frames in self.df.groupby(["location", "period"])["frame_id"]
+            ]
+        elif self.df is not None and "frame_id" in self.df:
+            timelines = [np.sort(self.df["frame_id"].unique())]
         else:
-            timeline = np.sort(np.unique(scene_starts))
-        if len(timeline) < 3:
+            timelines = [np.sort(np.unique(scene_starts))]
+        timelines = [timeline for timeline in timelines if len(timeline) >= 3]
+        if not timelines:
             raise ValueError("Not enough unique frames to create temporal splits")
 
-        train_cut = int(timeline[min(int(len(timeline) * train_ratio), len(timeline) - 1)])
-        validation_cut = int(
-            timeline[min(int(len(timeline) * (train_ratio + val_ratio)), len(timeline) - 1)]
-        )
-        frame_ends = [start + self.window_frames - 1 for start in scene_starts[:n]]
-        train_sample_idx = [i for i in range(n) if frame_ends[i] < train_cut]
-        val_sample_idx = [
-            i for i in range(n)
-            if scene_starts[i] >= train_cut + self.window_frames
-            and frame_ends[i] < validation_cut
-        ]
-        test_sample_idx = [
-            i for i in range(n)
-            if scene_starts[i] >= validation_cut + self.window_frames
-            and frame_ends[i] <= int(timeline[-1])
-        ]
+        starts = np.asarray(scene_starts[:n], dtype=np.int64)
+        ends = starts + self.window_frames - 1
+        train_mask = np.zeros(n, dtype=bool)
+        val_mask = np.zeros(n, dtype=bool)
+        test_mask = np.zeros(n, dtype=bool)
+        for timeline in timelines:
+            in_segment = (starts >= timeline[0]) & (ends <= timeline[-1])
+            train_cut = int(timeline[min(int(len(timeline) * train_ratio), len(timeline) - 1)])
+            validation_cut = int(
+                timeline[min(int(len(timeline) * (train_ratio + val_ratio)), len(timeline) - 1)]
+            )
+            train_mask |= in_segment & (ends < train_cut)
+            val_mask |= (in_segment & (starts >= train_cut + self.window_frames)
+                         & (ends < validation_cut))
+            test_mask |= in_segment & (starts >= validation_cut + self.window_frames)
+        train_sample_idx = np.flatnonzero(train_mask).tolist()
+        val_sample_idx = np.flatnonzero(val_mask).tolist()
+        test_sample_idx = np.flatnonzero(test_mask).tolist()
 
         train = [samples[i] for i in train_sample_idx]
         val = [samples[i] for i in val_sample_idx]
         test = [samples[i] for i in test_sample_idx]
 
-        # Log the temporal boundaries
-        if train_sample_idx:
-            train_frames = [scene_starts[i] for i in train_sample_idx]
-            val_frames = [scene_starts[i] for i in val_sample_idx] if val_sample_idx else []
-            test_frames = [scene_starts[i] for i in test_sample_idx] if test_sample_idx else []
-            logger.info(f"[NGSIMLoader] Temporal split: train={len(train)} "
-                  f"(frames {min(train_frames)}-{max(train_frames)}), "
-                  f"val={len(val)} "
-                  f"(frames {min(val_frames) if val_frames else 'N/A'}-{max(val_frames) if val_frames else 'N/A'}), "
-                  f"test={len(test)} "
-                  f"(frames {min(test_frames) if test_frames else 'N/A'}-{max(test_frames) if test_frames else 'N/A'})")
-        else:
-            logger.info(f"[NGSIMLoader] Split: train={len(train)}, "
-                  f"val={len(val)}, test={len(test)}")
+        # Log the split, overall and per site
+        def per_site(indices):
+            sites = [
+                location_of(self.scenes[sample_scene_indices[i]].get("vehicle_ids", [0])[0])
+                for i in indices
+            ]
+            return dict(zip(*np.unique(sites, return_counts=True))) if sites else {}
+        logger.info(
+            f"[NGSIMLoader] Per-recording temporal split over {len(timelines)} recordings: "
+            f"train={len(train)} {per_site(train_sample_idx)}, "
+            f"val={len(val)} {per_site(val_sample_idx)}, "
+            f"test={len(test)} {per_site(test_sample_idx)}"
+        )
 
         # Store indices so callers can access corresponding scenes
         self._split_indices = {
@@ -923,9 +1017,10 @@ class TrafficDataset(torch.utils.data.Dataset):
         return len(self.samples)
 
     def __getitem__(self, idx):
-        states, gt_pos, gt_goals, mask, vehicle_ids, goal_mask, target_origin = self.samples[idx]
+        states, gt_pos, gt_goals, mask, vehicle_ids, goal_mask, target_origin, dims = self.samples[idx]
         # Remove the batch dim that create_sample adds (DataLoader re-batches)
-        return states.squeeze(0), gt_pos.squeeze(0), gt_goals.squeeze(0), goal_mask.squeeze(0)
+        return (states.squeeze(0), gt_pos.squeeze(0), gt_goals.squeeze(0),
+                goal_mask.squeeze(0), dims.squeeze(0))
 
 
 def create_dataloader(
@@ -948,13 +1043,14 @@ def create_dataloader(
 def collate_fn(batch):
     """Custom collate function for variable-sized scenes.
 
-    Each item in *batch* is ``(states, gt_pos, gt_goals, goal_mask)`` **without** a
-    leading batch dimension (TrafficDataset squeezes it).
+    Each item in *batch* is ``(states, gt_pos, gt_goals, goal_mask, dims)`` **without**
+    a leading batch dimension (TrafficDataset squeezes it).
 
     Because different scenes may have different numbers of vehicles, we
-    pad to the maximum N in the batch and return a mask.
+    pad to the maximum N in the batch and return a mask. Padded dims get the
+    default car size (masked out anyway).
     """
-    states_list, gt_pos_list, gt_goals_list, goal_masks = zip(*batch)
+    states_list, gt_pos_list, gt_goals_list, goal_masks, dims_list = zip(*batch)
 
     # gt_pos is always (T_f, 2) — stack directly
     gt_positions = torch.stack(gt_pos_list)  # (B, T_f, 2)
@@ -982,5 +1078,9 @@ def collate_fn(batch):
         gt_goals_padded[i, :n, :] = g
         goal_mask_padded[i, :n] = goal_mask
 
-    return states_padded, gt_positions, gt_goals_padded, mask, goal_mask_padded
+    dims_padded = default_dims(B, max_N).clone()
+    for i, d in enumerate(dims_list):
+        dims_padded[i, :d.shape[0]] = d
+
+    return states_padded, gt_positions, gt_goals_padded, mask, goal_mask_padded, dims_padded
 

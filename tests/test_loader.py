@@ -177,9 +177,10 @@ def test_create_sample_uses_fixed_target_origin():
     torch.testing.assert_close(
         states[0, :, 0, 4], torch.tensor([0.1, 0.2, 0.3])
     )
-    torch.testing.assert_close(
-        states[0, :, 0, 6], torch.tensor([0.5, 0.5, 1.0])
-    )
+    # Problem 1b: lane relative to the target (target - vehicle); target always 0.
+    torch.testing.assert_close(states[0, :, 0, 6], torch.zeros(3))
+    torch.testing.assert_close(states[0, :, 1, 6], torch.tensor([0.0, -1.0, 0.0]))
+    torch.testing.assert_close(sample[7], torch.tensor([[[4.5, 1.8], [4.5, 1.8]]]))
     torch.testing.assert_close(target_future[0], torch.tensor([[3, 4], [7, 9]], dtype=torch.float32))
     torch.testing.assert_close(neighbor_goals[0, 0, :2], torch.tensor([12, 19], dtype=torch.float32))
     torch.testing.assert_close(states, shifted_states)
@@ -233,17 +234,18 @@ def test_build_samples_keep_history_neighbors_without_future_goal():
     samples = loader.build_samples()
 
     assert len(samples) == 1
-    states, gt_pos, gt_goals, vehicle_mask, vehicle_ids, goal_mask, origin = samples[0]
+    states, gt_pos, gt_goals, vehicle_mask, vehicle_ids, goal_mask, origin, dims = samples[0]
     assert vehicle_ids.tolist() == [1, 2]
     assert vehicle_mask.all()
     assert not goal_mask[0, 0]
     assert torch.count_nonzero(gt_goals) == 0
     assert torch.isfinite(states).all()
     batch = next(iter(create_dataloader(samples, batch_size=1, shuffle=False)))
-    assert len(batch) == 5
+    assert len(batch) == 6
     assert batch[0].shape == (1, 2, 2, 11)
     assert batch[3].tolist() == [[True, True]]
     assert batch[4].tolist() == [[False]]
+    assert batch[5].shape == (1, 2, 2)
 
 
 def test_build_samples_skips_nonfinite_target_future():
@@ -337,6 +339,7 @@ def test_fetch_ngsim_multi_concatenates():
             "v_length": [4.5] * 10,
             "v_width": [1.8] * 10,
             "lane_id": [1] * 10,
+            "global_time": [(1000 + f) * 100 for f in range(10)],
             "location": ["us-101"] * 10,
         })
         df1.to_csv(f"{tmpdir}/ngsim_us-101.csv", index=False)
@@ -353,6 +356,7 @@ def test_fetch_ngsim_multi_concatenates():
             "v_length": [4.5] * 10,
             "v_width": [1.8] * 10,
             "lane_id": [1] * 10,
+            "global_time": [(9000 + f) * 100 for f in range(10)],
             "location": ["i-80"] * 10,
         })
         df2.to_csv(f"{tmpdir}/ngsim_i-80.csv", index=False)
@@ -364,10 +368,10 @@ def test_fetch_ngsim_multi_concatenates():
         )
 
         assert len(combined) == 20
-        # frame_ids should be offset: first location 0-9, second 10-19
-        assert combined["frame_id"].min() == 0
-        assert combined["frame_id"].max() == 19
-        assert set(combined["vehicle_id"].unique()) == {1, 2}
+        # frame_ids offset per recording with an 80-frame gap: 0-9, then 90-99
+        assert sorted(combined["frame_id"].unique()) == list(range(10)) + list(range(90, 100))
+        # vehicle_id = location*1e6 + period*1e5 + original id
+        assert set(combined["vehicle_id"].unique()) == {1_100_001, 2_100_002}
         # location column should be preserved
         assert "location" in combined.columns
 

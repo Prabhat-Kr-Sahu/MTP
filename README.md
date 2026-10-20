@@ -94,7 +94,7 @@ python src/pipeline.py --mode train
 Training saves `best_model.pt`, `final_model.pt`, `last_checkpoint.pt`, and
 periodic `epoch_<N>.pt` checkpoints. Resume with:
 ```bash
-python src/pipeline.py --mode train --resume checkpoints/strap_reproduction_v2/last_checkpoint.pt
+python src/pipeline.py --mode train --resume checkpoints/strap_reproduction_v3/last_checkpoint.pt
 ```
 
 ### Train with basic loss (STRAP-B)
