@@ -22,7 +22,7 @@ As of 2026-10-20.
 | 2 | γ_risk lets the model cheat the risk-scaled loss | Decided | γ_risk from ground-truth future risk (no gradient path) |
 | 3 | Intention codebook is trainable, and eval silently resets it | Decided | Freeze the codebook as a buffer |
 | 4 | Risk-field parameters are placeholders | Open (analysis done) | — |
-| 5 | Validation and test are I-80 only | Open | — |
+| 5 | Validation and test are I-80 only | Open (options written up) | A: one global cut, or B: cut each recording 70/10/20; random split rejected |
 | 6 | Encoder stacking order vs Fig. 2 | Open | — |
 | 7 | Target history positions are always 0 | Open | — |
 | 8 | Lateral velocity is always 0 | Open | — |
@@ -79,7 +79,7 @@ Give every time step and every vehicle a unique key that includes the location *
 | Alternative | Why rejected |
 | --- | --- |
 | **(location, frame_id) only** | Separates the two sites but not the three periods inside each site, so the phantom cars, interleaved rows and fake collisions all remain. |
-| **(location, global_time) as the clock** | The periods overlap in real time by 1.5–3 minutes, and in that overlap the same physical car was recorded twice under two ids. At the same instant, 808 us-101 cars and 6,768 i-80 cars have a "twin" from the other period less than 1 m away. Merged into one scene, each twin gives S-field ≈ 1 and a fake 0 m collision. Removing the twins needs cross-period track matching. Also, global_time spans April (i-80) to June (us-101), about 5×10⁷ tenths of a second, too large for the frame-mask array in `build_scenes`, and it would flip the temporal split. |
+| **(location, global_time) as the clock** | Consecutive periods overlap in real time (us-101: 90 s and 84 s; i-80: 180 s between periods 2 and 3; none between 1 and 2), so plain `global_time` ranges cannot assign the overlap rows to a period. Re-measured 2026-10-20: only 3–10 cars per boundary come within 1 m of a car from the other period, and 0–7 pairs stay within 1 m for ≥ 3 s. The median nearest-car distance across periods is 140–190 m, so the overlap mostly covers different stretches of road. (An earlier figure of 808 / 6,768 "twin" cars was wrong.) Any twin that is merged into one scene still gives S-field ≈ 1 and a fake 0 m collision. Also, global_time spans April (i-80) to June (us-101), about 5×10⁷ tenths of a second, too large for the frame-mask array in `build_scenes`, and it would flip the temporal split. |
 | **Keep only one period per site** | Fixes the problem but keeps only about 33–45% of the data, biases training towards one traffic state (congestion builds over the recording), and removes high-risk events. |
 | **Re-download the original per-period NGSIM files** | A large rewrite of the download code. The original files also restart frame and vehicle ids, so the same key logic would still be needed. Its only advantage, exact period boundaries, we already get from `global_time` without error. |
 
@@ -91,6 +91,8 @@ is a small change in one file that extends the per-location offsetting that alre
 - A car still driving at a period boundary is split into two tracks, losing at most one 8 s window per boundary.
 - The timeline has about 6 segments (≈ 55–60k frames); `build_scenes` peak memory rises to about 250 MB.
 - The temporal split now runs over 6 segments; see problems 5 and D.
+- The real-time overlap between periods is **kept** (user decision, 2026-10-20). Only ≤ 10 cars per boundary are recorded twice.
+  Under problem 5 option B this is a tiny train/test leak (≤ ~30 cars in total).
 
 ---
 
@@ -276,17 +278,81 @@ The current values rank real conflicts worse than plain distance.
 
 ## Problem 5: Validation and test are I-80 only
 
-**Status:** Open
+**Status:** Open. Options A and B written up, decision pending; option C (random split) rejected.
 
 ### Description
-_Placeholder._ The two sites are chained on one timeline and split 70/10/20 by time, so validation and test come entirely from I-80.
-With problem 1's fix the timeline has 6 (location, period) segments. To be discussed together with D.
+The two sites are chained on one timeline and split 70/10/20 by time, so validation and test come entirely from I-80.
+Everything below assumes problem 1's unique keys. The timeline then has 6 (location, period) segments in this order:
+us-101 p1, p2, p3, then i-80 p1, p2, p3, with 80-frame gaps between segments.
+
+Measured on the cached data (unique frames per period):
+
+| Site | p1 | p2 | p3 |
+| --- | --- | --- | --- |
+| us-101 | 9,529 (07:50–08:06) | 9,991 (08:04–08:21) | 9,948 (08:19–08:36) |
+| i-80 | 10,013 (15:59–16:16) | 9,787 (16:59–17:16) | 11,685 (17:13–17:32) |
+
+Total: 60,953 frames, about 49% us-101 and 51% i-80.
+
+### Option A: one global temporal cut (current `get_splits`, unchanged)
+- The cuts fall at 70% (frame 42,667) and 80% (frame 48,762) of the timeline. Both land inside i-80 p2, at about 33% and 95% of it.
+- **Train** = all of us-101 + i-80 p1 + the first ~5 min of i-80 p2 (i-80 is about 31% of train).
+  **Val** = ~10 min of i-80 p2 (about 17:05–17:15).
+  **Test** = the last ~50 s of i-80 p2 + all of i-80 p3 (17:13–17:32, the PM peak).
+- **Pros:** no code change. Test is strictly later than train. It is a hard, honest test of transfer to a new period and a partly new site.
+  No cut lies at a period boundary, so the cars recorded twice in the overlaps cannot cross splits.
+- **Cons:**
+  - Val and test are i-80 only, and test is a single congested period.
+  - RMSE mixes site shift with congestion and is not comparable to the paper's NGSIM-wide number.
+  - Model selection (val) is tuned to i-80, and us-101 is never evaluated.
+
+### Option B: cut each recording 70 / 10 / 20
+- Each of the 6 segments is cut at 70% and 80% of its own frames, with the existing 80-frame guard gap after each cut.
+  **Train** = the first ~10.5 min of every recording, **val** = the next ~1.5 min, **test** = the last ~3 min.
+- **Pros:**
+  - Test covers both sites (about 49% / 51%) and all 6 periods.
+  - Per-site RMSE can be reported directly.
+  - Train, val and test come from the same mix of sites and traffic states.
+  - Closes TODO #5 in [PAPER_VS_IMPLEMENTATION.md](PAPER_VS_IMPLEMENTATION.md) §10.
+- **Cons:**
+  - Test follows train by only ~1.5 min inside the same recording. Traffic states (e.g. one congestion wave) are correlated, so the score is optimistic.
+  - The guard gaps grow from 2 to 12, losing about 1.6% of frames instead of 0.3%.
+  - `get_splits` must cut per segment, using `location` + the `period` column that problem 1 keeps.
+  - **Overlap leak:** the end of period k (test) shares real time with the start of period k+1 (train). At most ~10 cars per boundary
+    (≤ ~30 in total) can appear in both. Accept this, or drop windows of those cars.
+
+### Option C: random split of the built scenes (rejected)
+Question: after the scenes are built, does it matter if train / val / test are drawn as a random sample? **Yes. It leaks the answer.**
+- **Same-target overlap.** A window is 80 frames and the stride is 10, so each window shares frames with up to 7 earlier and
+  7 later windows of the same target. With a random 70/10/20 draw, the chance that none of those 14 is in train is about
+  0.3¹⁴ ≈ 5×10⁻⁸. In practice every test window has a near-copy in train.
+- **Labels become inputs.** The window that starts 30 frames later uses this window's future frames 30–59 as its history.
+  So test labels are literally training inputs.
+- **Cross-vehicle leak.** A test target also appears as a neighbour in other targets' training windows at the same time,
+  and its 5 s end point is a training label there (neighbour goal Ĝ).
+- **Effect:** test RMSE measures memorisation, not prediction. It is optimistic and not comparable to a held-out score.
+  This is the reason given in PAPER_VS_IMPLEMENTATION.md §1 ("Split method").
+
+Weaker random variants:
+
+| Variant | Verdict |
+| --- | --- |
+| Random split **by target vehicle** (all windows of a car in one set) | Removes the same-target overlap, but keeps the cross-vehicle leak (a test car is a neighbour with a goal label in training scenes) and the shared traffic state at the same instant. Still leaky. |
+| Random **time blocks** (e.g. 1-minute chunks with 80-frame guard gaps) | Leak-free and covers all recordings, but it is option B with many more gaps (more lost frames, train and test even closer in time). |
+
+### Comparison
+
+| | A: global cut | B: per recording | C: random |
+| --- | --- | --- | --- |
+| Test sites | i-80 only | us-101 + i-80 | both |
+| Test periods | i-80 p3 (+ end of p2) | all 6 | all 6 |
+| Code change | none | `get_splits` per segment | small |
+| Leakage | none | ≤ ~30 overlap cars | severe (near-copies, labels as inputs) |
+| Score | hardest (time + site shift) | optimistic (same recording) | invalid (memorisation) |
+| Comparable to paper's NGSIM number | no | closer | no (inflated) |
 
 ### Solution
-_To be decided._
-
-### Alternatives rejected
-_To be decided._
+**Decision:** _pending_, between A and B. C is rejected.
 
 ### Why this solution
 _To be decided._
