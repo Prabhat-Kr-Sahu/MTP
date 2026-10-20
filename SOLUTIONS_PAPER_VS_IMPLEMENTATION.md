@@ -12,6 +12,7 @@ As of 2026-10-20.
 | Decided | Solution agreed; not yet implemented |
 | Implemented | Solution in the code and tested |
 | Open | Not yet discussed; placeholder below |
+| Deprioritised | Analysed; judged not important enough to change now |
 
 **Summary**
 
@@ -24,8 +25,8 @@ As of 2026-10-20.
 | 4 | Risk-field parameters are placeholders | Open (analysis done) | — |
 | 5 | Validation and test are I-80 only | Open (options written up) | A: one global cut, or B: cut each recording 70/10/20; random split rejected |
 | 6 | Encoder stacking order vs Fig. 2 | Open | — |
-| 7 | Target history positions are always 0 | Open | — |
-| 8 | Lateral velocity is always 0 | Open | — |
+| 7 | Target history positions are always 0 | Deprioritised | Keep per-timestep origin; lost lateral history changes 5 s lateral RMSE by ≈ 0.02–0.03 m |
+| 8 | Lateral velocity is always 0 | Deprioritised | Keep vy = 0; same small lateral gain as problem 7 |
 | 9 | Nearest-15 fallback / neighbour count | Open | — |
 | 10 | Table II risk-level breakdown missing | Open | — |
 | D | How us-101 and i-80 are used together | Open | — |
@@ -278,81 +279,17 @@ The current values rank real conflicts worse than plain distance.
 
 ## Problem 5: Validation and test are I-80 only
 
-**Status:** Open. Options A and B written up, decision pending; option C (random split) rejected.
+**Status:** Open
 
 ### Description
-The two sites are chained on one timeline and split 70/10/20 by time, so validation and test come entirely from I-80.
-Everything below assumes problem 1's unique keys. The timeline then has 6 (location, period) segments in this order:
-us-101 p1, p2, p3, then i-80 p1, p2, p3, with 80-frame gaps between segments.
-
-Measured on the cached data (unique frames per period):
-
-| Site | p1 | p2 | p3 |
-| --- | --- | --- | --- |
-| us-101 | 9,529 (07:50–08:06) | 9,991 (08:04–08:21) | 9,948 (08:19–08:36) |
-| i-80 | 10,013 (15:59–16:16) | 9,787 (16:59–17:16) | 11,685 (17:13–17:32) |
-
-Total: 60,953 frames, about 49% us-101 and 51% i-80.
-
-### Option A: one global temporal cut (current `get_splits`, unchanged)
-- The cuts fall at 70% (frame 42,667) and 80% (frame 48,762) of the timeline. Both land inside i-80 p2, at about 33% and 95% of it.
-- **Train** = all of us-101 + i-80 p1 + the first ~5 min of i-80 p2 (i-80 is about 31% of train).
-  **Val** = ~10 min of i-80 p2 (about 17:05–17:15).
-  **Test** = the last ~50 s of i-80 p2 + all of i-80 p3 (17:13–17:32, the PM peak).
-- **Pros:** no code change. Test is strictly later than train. It is a hard, honest test of transfer to a new period and a partly new site.
-  No cut lies at a period boundary, so the cars recorded twice in the overlaps cannot cross splits.
-- **Cons:**
-  - Val and test are i-80 only, and test is a single congested period.
-  - RMSE mixes site shift with congestion and is not comparable to the paper's NGSIM-wide number.
-  - Model selection (val) is tuned to i-80, and us-101 is never evaluated.
-
-### Option B: cut each recording 70 / 10 / 20
-- Each of the 6 segments is cut at 70% and 80% of its own frames, with the existing 80-frame guard gap after each cut.
-  **Train** = the first ~10.5 min of every recording, **val** = the next ~1.5 min, **test** = the last ~3 min.
-- **Pros:**
-  - Test covers both sites (about 49% / 51%) and all 6 periods.
-  - Per-site RMSE can be reported directly.
-  - Train, val and test come from the same mix of sites and traffic states.
-  - Closes TODO #5 in [PAPER_VS_IMPLEMENTATION.md](PAPER_VS_IMPLEMENTATION.md) §10.
-- **Cons:**
-  - Test follows train by only ~1.5 min inside the same recording. Traffic states (e.g. one congestion wave) are correlated, so the score is optimistic.
-  - The guard gaps grow from 2 to 12, losing about 1.6% of frames instead of 0.3%.
-  - `get_splits` must cut per segment, using `location` + the `period` column that problem 1 keeps.
-  - **Overlap leak:** the end of period k (test) shares real time with the start of period k+1 (train). At most ~10 cars per boundary
-    (≤ ~30 in total) can appear in both. Accept this, or drop windows of those cars.
-
-### Option C: random split of the built scenes (rejected)
-Question: after the scenes are built, does it matter if train / val / test are drawn as a random sample? **Yes. It leaks the answer.**
-- **Same-target overlap.** A window is 80 frames and the stride is 10, so each window shares frames with up to 7 earlier and
-  7 later windows of the same target. With a random 70/10/20 draw, the chance that none of those 14 is in train is about
-  0.3¹⁴ ≈ 5×10⁻⁸. In practice every test window has a near-copy in train.
-- **Labels become inputs.** The window that starts 30 frames later uses this window's future frames 30–59 as its history.
-  So test labels are literally training inputs.
-- **Cross-vehicle leak.** A test target also appears as a neighbour in other targets' training windows at the same time,
-  and its 5 s end point is a training label there (neighbour goal Ĝ).
-- **Effect:** test RMSE measures memorisation, not prediction. It is optimistic and not comparable to a held-out score.
-  This is the reason given in PAPER_VS_IMPLEMENTATION.md §1 ("Split method").
-
-Weaker random variants:
-
-| Variant | Verdict |
-| --- | --- |
-| Random split **by target vehicle** (all windows of a car in one set) | Removes the same-target overlap, but keeps the cross-vehicle leak (a test car is a neighbour with a goal label in training scenes) and the shared traffic state at the same instant. Still leaky. |
-| Random **time blocks** (e.g. 1-minute chunks with 80-frame guard gaps) | Leak-free and covers all recordings, but it is option B with many more gaps (more lost frames, train and test even closer in time). |
-
-### Comparison
-
-| | A: global cut | B: per recording | C: random |
-| --- | --- | --- | --- |
-| Test sites | i-80 only | us-101 + i-80 | both |
-| Test periods | i-80 p3 (+ end of p2) | all 6 | all 6 |
-| Code change | none | `get_splits` per segment | small |
-| Leakage | none | ≤ ~30 overlap cars | severe (near-copies, labels as inputs) |
-| Score | hardest (time + site shift) | optimistic (same recording) | invalid (memorisation) |
-| Comparable to paper's NGSIM number | no | closer | no (inflated) |
+_Placeholder._ The two sites are chained on one timeline and split 70/10/20 by time, so validation and test come entirely from I-80.
+With problem 1's fix the timeline has 6 (location, period) segments. To be discussed together with D.
 
 ### Solution
-**Decision:** _pending_, between A and B. C is rejected.
+_To be decided._
+
+### Alternatives rejected
+_To be decided._
 
 ### Why this solution
 _To be decided._
@@ -379,38 +316,75 @@ _To be decided._
 
 ## Problem 7: Target history positions are always 0
 
-**Status:** Open
+**Status:** Deprioritised (user decision, 2026-10-20)
 
 ### Description
-_Placeholder._ Positions are relative to the target at each timestep, so the target row is always (0, 0) and its own path history is lost.
+Positions are relative to the target at each timestep, so the target row is always (0, 0) and its own path history is lost.
 With problem 1b, the target's lane is also always 0.
 
+What is actually lost:
+
+| Target information | Still visible? |
+| --- | --- |
+| Longitudinal motion | **Yes.** Speed and acceleration are inputs at all 30 history frames, so the along-road path is effectively kept. |
+| Lateral motion (drift, lane change in progress) | **No.** Δy = 0, vy = 0 (problem 8) and relative lane = 0 (problem 1b). Only indirect: all neighbours' Δy shift together. |
+
+### Measurement
+Raw data, every 8 s window (stride 1 s), separated by recording (problem 1 keys). "With history" = best linear extrapolation of the target's last 1 s of lateral movement.
+
+| | us-101 | i-80 |
+| --- | --- | --- |
+| Windows | 364,412 | 414,305 |
+| Target changes lane in history / in future | 1.9% / 2.7% | 1.8% / 2.9% |
+| History lateral move > 0.5 m | 9.3% | 11.6% |
+| Correlation between history and future lateral move | 0.23 | 0.32 |
+| Lateral RMSE at 5 s, all windows: without → with history | 0.56 → 0.54 m | 0.59 → 0.56 m |
+| Lateral RMSE at 5 s, future lane-change windows: without → with | 2.46 → 2.30 m | 2.48 → 2.23 m |
+| Longitudinal RMSE at 5 s from speed alone (for scale) | 6.94 m | 6.19 m |
+
 ### Solution
-_To be decided._
+**Keep the per-timestep origin.** The lost lateral history changes the overall 5 s error by only about 0.02–0.03 m, against
+about 6 m of longitudinal error, so it barely affects RMSE.
 
 ### Alternatives rejected
-_To be decided._
 
-### Why this solution
-_To be decided._
+| Alternative | Why rejected |
+| --- | --- |
+| Fixed origin (target at frame 30) for the history | Recovers the target's lateral path, but the measured gain is too small to be worth a feature change and retraining now. |
+
+### Known cost (accepted)
+- Lane-change windows (≈ 3%) lose 7–10% of lateral accuracy at 5 s. These cut-ins are the high-risk cases that Table II and the collision evaluation focus on.
+- The numbers above are a lower bound: linear extrapolation is crude and NGSIM `local_x` is noisy, so the network might use the history better.
+- Revisit if lane-change or Table II results turn out weak.
 
 ---
 
 ## Problem 8: Lateral velocity is always 0
 
-**Status:** Open
+**Status:** Deprioritised (user decision, 2026-10-20)
 
 ### Description
-_Placeholder._ NGSIM's `v_vel` is a scalar speed along the lane, so feature 3 (vy) is always 0 and the O-field only sees same-lane closing.
+NGSIM's `v_vel` is a scalar speed along the lane, so feature 3 (vy) is always 0 and the O-field only sees same-lane closing.
+
+**The dataset does not provide v_y.** NGSIM has no lateral-velocity column: `v_vel` (speed) and `v_acc` (acceleration) are
+scalars along the direction of travel. So lateral velocity cannot be taken from the data as given. The only way to get it would be
+to derive it from positions (Δ`local_x` / Δt), which needs smoothing because NGSIM positions are noisy (see the alternative below).
 
 ### Solution
-_To be decided._
+**Keep vy = 0.** For the target, a real lateral velocity would recover the same lateral signal measured in problem 7.
+That gain is small: about 0.02–0.03 m of 5 s lateral RMSE overall, and 7–10% only on the ≈ 3% of windows with a lane change.
 
 ### Alternatives rejected
-_To be decided._
 
-### Why this solution
-_To be decided._
+| Alternative | Why rejected |
+| --- | --- |
+| vy = Δ`local_x` / Δt (smoothed), for all vehicles | Same small prediction gain as problem 7; not worth a feature change and retraining now. |
+
+### Known cost (accepted)
+- The O-field still has no lateral relative velocity, so a neighbour cutting in from the next lane only registers through
+  S-field proximity, not as a closing conflict. This affects neighbour selection and the risk features, not only the target's lateral input.
+- The decoder's predicted neighbour goals keep vy ≈ 0 (ground truth vy is always 0).
+- Revisit together with problem 7 if lane-change, Table II or collision results turn out weak, and before re-tuning problem 4's risk parameters.
 
 ---
 
