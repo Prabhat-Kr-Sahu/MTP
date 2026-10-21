@@ -98,25 +98,76 @@ def validate(model, dataloader, device):
     return total_loss / num_batches, horizon_rmse(squared_error_sum, sample_count)
 
 
-def train(
+def prepare_data(loader, save_dir: str = CHECKPOINT_DIR):
+    """Split, normalize (train stats only) and fit the k-means intention codebook.
+
+    Depends only on the train split, so tuning runs it once for every trial.
+    Returns (train_samples, val_samples, intention_centers).
+    """
+    os.makedirs(save_dir, exist_ok=True)
+    train_samples, val_samples, test_samples = loader.get_splits()
+    stats = loader.get_dataset_stats()
+    logger.info(
+        "Dataset: rows=%s, vehicles=%s, frames=%s, frame_range=%s, "
+        "samples(train/val/test)=%s/%s/%s",
+        stats.get("total_rows", 0), stats.get("unique_vehicles", 0),
+        stats.get("num_frames", 0), stats.get("frame_range", "N/A"),
+        len(train_samples), len(val_samples), len(test_samples),
+    )
+
+    # --- Normalization: compute from TRAINING data only ---
+    logger.info("[Train] Computing normalization statistics from training data...")
+    train_states_list = [s[0] for s in train_samples]  # each is (1, T_h, N, F)
+    norm_stats = compute_normalization_stats(train_states_list)
+    save_stats(norm_stats, f"{save_dir}/{NORMALIZATION_FILE}")
+    logger.info(f"[Train] Saved normalization stats to {save_dir}/{NORMALIZATION_FILE}")
+
+    # Apply normalization to train and val samples
+    train_samples = normalize_samples(train_samples, norm_stats)
+    val_samples = normalize_samples(val_samples, norm_stats)
+
+    # --- K-means intentions: fit on TRAINING endpoints only ---
+    logger.info("[Train] Fitting k-means intention codebook on training data...")
+    # build_codebook_from_samples expects (states, gt_pos, gt_goals) tuples
+    codebook_input = [(sample[0], sample[1], sample[2]) for sample in train_samples]
+    intention_centers = build_codebook_from_samples(codebook_input, k=100, seed=SEED)
+    save_codebook(intention_centers, f"{save_dir}/{INTENTIONS_FILE}")
+    logger.info(f"[Train] Saved intention codebook ({intention_centers.shape}) to "
+          f"{save_dir}/{INTENTIONS_FILE}")
+    return train_samples, val_samples, intention_centers
+
+
+def fit(
     model,
-    loader,
+    train_samples,
+    val_samples,
+    intention_centers,
     num_epochs: int = NUM_EPOCHS,
     use_risk_loss: bool = True,
     beta: float = BETA_LOSS,
+    learning_rate: float = LEARNING_RATE,
+    batch_size: int = BATCH_SIZE,
+    lr_decay: float = LR_DECAY,
+    weight_decay: float = WEIGHT_DECAY,
+    save_dir: str = CHECKPOINT_DIR,
     resume_from: str = None,
     checkpoint_every: int = 2,
-    learning_rate: float = LEARNING_RATE,
+    on_epoch=None,
 ):
-    """Full training loop."""
-    os.makedirs(CHECKPOINT_DIR, exist_ok=True)
-    os.makedirs(LOG_DIR, exist_ok=True)
+    """Epoch loop on prepared samples.
+
+    save_dir=None writes nothing (tuning trials). on_epoch(epoch, log_entry)
+    runs after every epoch; tuning reports and prunes from it.
+    """
+    if save_dir:
+        os.makedirs(save_dir, exist_ok=True)
+        os.makedirs(LOG_DIR, exist_ok=True)
 
     # Optimizer
     optimizer = optim.Adam(
-        model.parameters(), lr=learning_rate, weight_decay=WEIGHT_DECAY
+        model.parameters(), lr=learning_rate, weight_decay=weight_decay
     )
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=LR_DECAY)
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=lr_decay)
 
     best_val_loss = float("inf")
     training_log = []
@@ -140,45 +191,16 @@ def train(
         logger.info(f"Resuming from {resume_from} at epoch {start_epoch + 1}")
 
     logger.info(f"Training STRAP on {DEVICE}")
-    logger.info(f"Epochs: {num_epochs}, Risk Loss: {use_risk_loss}, Beta: {beta}")
-
-    # Load dataset
-    train_samples, val_samples, test_samples = loader.get_splits()
-    stats = loader.get_dataset_stats()
-    logger.info(
-        "Dataset: rows=%s, vehicles=%s, frames=%s, frame_range=%s, "
-        "samples(train/val/test)=%s/%s/%s",
-        stats.get("total_rows", 0), stats.get("unique_vehicles", 0),
-        stats.get("num_frames", 0), stats.get("frame_range", "N/A"),
-        len(train_samples), len(val_samples), len(test_samples),
-    )
-
-    # --- Normalization: compute from TRAINING data only ---
-    logger.info("[Train] Computing normalization statistics from training data...")
-    train_states_list = [s[0] for s in train_samples]  # each is (1, T_h, N, F)
-    norm_stats = compute_normalization_stats(train_states_list)
-    save_stats(norm_stats, f"{CHECKPOINT_DIR}/{NORMALIZATION_FILE}")
-    logger.info(f"[Train] Saved normalization stats to {CHECKPOINT_DIR}/{NORMALIZATION_FILE}")
-
-    # Apply normalization to train and val samples
-    train_samples = normalize_samples(train_samples, norm_stats)
-    val_samples = normalize_samples(val_samples, norm_stats)
-
-    # --- K-means intentions: fit on TRAINING endpoints only ---
-    logger.info("[Train] Fitting k-means intention codebook on training data...")
-    # build_codebook_from_samples expects (states, gt_pos, gt_goals) tuples
-    codebook_input = [(sample[0], sample[1], sample[2]) for sample in train_samples]
-    intention_centers = build_codebook_from_samples(codebook_input, k=100, seed=SEED)
-    save_codebook(intention_centers, f"{CHECKPOINT_DIR}/{INTENTIONS_FILE}")
-    logger.info(f"[Train] Saved intention codebook ({intention_centers.shape}) to "
-          f"{CHECKPOINT_DIR}/{INTENTIONS_FILE}")
+    logger.info(f"Epochs: {num_epochs}, Risk Loss: {use_risk_loss}, Beta: {beta}, "
+                f"LR: {learning_rate}, Batch: {batch_size}, LR decay: {lr_decay}, "
+                f"Weight decay: {weight_decay}")
 
     # Load codebook into model's risk decoder
     model.risk_decoder.set_intentions(torch.from_numpy(intention_centers))
     logger.info("[Train] Loaded k-means intentions into model")
 
-    train_dl = create_dataloader(train_samples, batch_size=BATCH_SIZE, shuffle=True)
-    val_dl = create_dataloader(val_samples, batch_size=BATCH_SIZE, shuffle=False)
+    train_dl = create_dataloader(train_samples, batch_size=batch_size, shuffle=True)
+    val_dl = create_dataloader(val_samples, batch_size=batch_size, shuffle=False)
 
     logger.info(f"Number of training batches: {len(train_dl)}")
     logger.info(f"Number of validation batches: {len(val_dl)}")
@@ -207,10 +229,15 @@ def train(
               f"Train Loss={train_loss:.4f} (goal={gl:.4f}, traj={tl:.4f}), "
               f"Val Loss={val_loss:.4f}, Val RMSE={val_rmse:.4f}")
 
+        if on_epoch:
+            on_epoch(epoch + 1, log_entry)
+        if not save_dir:
+            continue
+
         # Save best checkpoint
         if val_loss < best_val_loss:
             best_val_loss = val_loss
-            torch.save(model.state_dict(), f"{CHECKPOINT_DIR}/best_model.pt")
+            torch.save(model.state_dict(), f"{save_dir}/best_model.pt")
             logger.info(f"  -> Saved best checkpoint (val_loss={val_loss:.4f})")
 
         checkpoint = {
@@ -223,17 +250,22 @@ def train(
             "best_val_loss": best_val_loss,
             "training_log": training_log,
         }
-        torch.save(checkpoint, f"{CHECKPOINT_DIR}/last_checkpoint.pt")
+        torch.save(checkpoint, f"{save_dir}/last_checkpoint.pt")
         if checkpoint_every > 0 and (epoch + 1) % checkpoint_every == 0:
-            torch.save(checkpoint, f"{CHECKPOINT_DIR}/epoch_{epoch + 1}.pt")
+            torch.save(checkpoint, f"{save_dir}/epoch_{epoch + 1}.pt")
 
-    # Save training log
-    with open(f"{LOG_DIR}/training_log.json", "w") as f:
-        json.dump(training_log, f, indent=2)
+    if save_dir:
+        # Save training log
+        with open(f"{LOG_DIR}/training_log.json", "w") as f:
+            json.dump(training_log, f, indent=2)
 
-    # Save final model
-    torch.save(model.state_dict(), f"{CHECKPOINT_DIR}/final_model.pt")
+        # Save final model
+        torch.save(model.state_dict(), f"{save_dir}/final_model.pt")
 
     logger.info("Training complete!")
     return training_log
 
+
+def train(model, loader, resume_from: str = None, **hparams):
+    """Full training run: prepare data, then fit. hparams are fit()'s keyword args."""
+    return fit(model, *prepare_data(loader), resume_from=resume_from, **hparams)

@@ -1,6 +1,8 @@
-"""STRAP pipeline entry point: prepare | train | eval | collisions."""
+"""STRAP pipeline entry point: prepare | tune | train | eval | collisions."""
 import argparse
+import json
 import os
+import random
 import sys
 
 # Allow `python src/pipeline.py` (script dir = src/) and `python -m src.pipeline`.
@@ -10,8 +12,8 @@ import numpy as np
 import torch
 
 from src.config import (
-    BETA_LOSS, CHECKPOINT_DIR, DEBUG_MAX_ROWS, DEVICE, DT, INTENTIONS_FILE,
-    LEARNING_RATE, LOG_DIR, NGSIM_LOCATIONS, NORMALIZATION_FILE, NUM_EPOCHS,
+    BETA_LOSS, CHECKPOINT_DIR, DEBUG_MAX_ROWS, DEVICE, DROPOUT, DT, INTENTIONS_FILE,
+    LEARNING_RATE, LOG_DIR, NGSIM_LOCATIONS, NORMALIZATION_FILE, NUM_EPOCHS, SEED,
 )
 from src.data.loader import NGSIMDataLoader, create_dataloader, location_of
 from src.data.normalization import apply_normalization, load_stats, normalize_samples
@@ -23,7 +25,7 @@ from src.evaluation.risk_metrics import METRICS, is_collision
 from src.intentions import load_codebook
 from src.logger import get_logger
 from src.models.strap import STRAP
-from src.train import train
+from src.train import fit, prepare_data, train
 
 logger = get_logger()
 
@@ -41,8 +43,8 @@ def make_loader(args):
     )
 
 
-def build_model():
-    model = STRAP().to(DEVICE)
+def build_model(dropout: float = DROPOUT):
+    model = STRAP(dropout=dropout).to(DEVICE)
     n_params = sum(p.numel() for p in model.parameters())
     logger.info(f"STRAP on {DEVICE}: {n_params:,} parameters")
     return model
@@ -163,14 +165,72 @@ def cmd_prepare(args):
     )
 
 
+TUNE_DIR = f"{LOG_DIR}/tuning"
+
+
+def cmd_tune(args):
+    """Bayesian (Optuna TPE) search over the STRAP-R training hyperparameters.
+
+    Data is prepared once; every trial trains on the same seeded fraction of
+    the train split and is scored by its best full-val RMSE. The SQLite study
+    resumes when rerun. Writes TUNE_DIR/best_params.json for --mode train --params.
+    """
+    import optuna  # only this mode needs it
+
+    train_s, val_s, centers = prepare_data(make_loader(args), save_dir=TUNE_DIR)
+    k = max(1, int(len(train_s) * args.tune_fraction))
+    train_s = random.Random(SEED).sample(train_s, k)
+    logger.info(f"[Tune] {k} train samples per trial, {len(val_s)} val samples")
+
+    def objective(trial):
+        hp = {
+            "learning_rate": trial.suggest_float("learning_rate", 1e-4, 2e-3, log=True),
+            "lr_decay": trial.suggest_float("lr_decay", 0.5, 0.95),
+            "batch_size": trial.suggest_categorical("batch_size", [32, 64, 128, 256]),  # OOM trials fail, study goes on
+            "weight_decay": trial.suggest_float("weight_decay", 1e-6, 1e-3, log=True),
+            "beta": trial.suggest_float("beta", 0.0, 3.0),
+        }
+        dropout = trial.suggest_float("dropout", 0.0, 0.3)
+        torch.manual_seed(SEED)
+        torch.cuda.empty_cache()  # free memory left by an OOM trial
+
+        def report(epoch, entry):
+            trial.report(entry["val_rmse"], epoch)
+            if trial.should_prune():
+                raise optuna.TrialPruned()
+
+        log = fit(build_model(dropout), train_s, val_s, centers, num_epochs=args.epochs,
+                  use_risk_loss=True, save_dir=None, on_epoch=report, **hp)
+        return min(entry["val_rmse"] for entry in log)
+
+    study = optuna.create_study(
+        direction="minimize", study_name="strap_r",
+        storage=f"sqlite:///{TUNE_DIR}/optuna.db", load_if_exists=True,
+        sampler=optuna.samplers.TPESampler(seed=SEED),
+        pruner=optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=3),
+    )
+    study.optimize(objective, n_trials=args.trials, catch=(torch.OutOfMemoryError,))
+
+    done = study.trials_dataframe().query("state == 'COMPLETE'").sort_values("value")
+    logger.info("[Tune] Top trials:\n" + done.head(5).to_string())
+    logger.info(f"[Tune] Best val RMSE {study.best_value:.4f} with {study.best_params}")
+    with open(f"{TUNE_DIR}/best_params.json", "w") as f:
+        json.dump(study.best_params, f, indent=2)
+    logger.info(f"Saved {TUNE_DIR}/best_params.json")
+
+
 def cmd_train(args):
     use_risk_loss = not args.basic_loss
     logger.info("Mode: " + ("STRAP-R (risk-scaled loss)" if use_risk_loss else "STRAP-B (basic loss)"))
+    hp = {"learning_rate": args.lr, "beta": BETA_LOSS}
+    if args.params:
+        with open(args.params) as f:
+            hp.update(json.load(f))  # tuned values override --lr and BETA_LOSS
+        logger.info(f"Hyperparameters from {args.params}: {hp}")
     train(
-        build_model(), make_loader(args),
-        num_epochs=args.epochs, use_risk_loss=use_risk_loss, beta=BETA_LOSS,
-        resume_from=args.resume, checkpoint_every=args.checkpoint_every,
-        learning_rate=args.lr,
+        build_model(hp.pop("dropout", DROPOUT)), make_loader(args),
+        num_epochs=args.epochs, use_risk_loss=use_risk_loss,
+        resume_from=args.resume, checkpoint_every=args.checkpoint_every, **hp,
     )
 
 
@@ -256,7 +316,7 @@ def cmd_collisions(args):
     _write(f"{LOG_DIR}/metric_comparison.txt", comparison)
 
 
-MODES = {"prepare": cmd_prepare, "train": cmd_train, "eval": cmd_eval, "collisions": cmd_collisions}
+MODES = {"prepare": cmd_prepare, "tune": cmd_tune, "train": cmd_train, "eval": cmd_eval, "collisions": cmd_collisions}
 
 
 def main():
@@ -272,6 +332,11 @@ def main():
     parser.add_argument("--collision_threshold", type=float, default=2.0,
                         help="Distance (m) for GT collision labels and the chosen metric")
     parser.add_argument("--locations", default=None, help="Comma-separated NGSIM locations")
+    parser.add_argument("--trials", type=int, default=30, help="Optuna trials for --mode tune")
+    parser.add_argument("--tune-fraction", type=float, default=0.2,
+                        help="Fraction of the train split each tuning trial uses")
+    parser.add_argument("--params", default=None,
+                        help="JSON of tuned hyperparameters for --mode train (from --mode tune)")
     args = parser.parse_args()
     MODES[args.mode](args)
 
