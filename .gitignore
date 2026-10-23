@@ -12,6 +12,7 @@ venv/
 /checkpoints/
 /logs/
 /results/
+/experiments/checkpoints/
 
 # IDE
 .vscode/

@@ -117,6 +117,22 @@ def collision_report(metric_name, threshold, m, n_pairs):
     ]
 
 
+def metric_rows(scores, gt):
+    """One dict per risk metric: default-threshold confusion counts, rates and AUCs."""
+    rows = []
+    for name, (_, higher, default) in METRICS.items():
+        pred = np.array([is_collision(name, v) for v in scores[name]], dtype=int)
+        m = collision_metrics_from_labels(pred, gt)
+        rows.append({
+            "metric": name, "threshold": default, "higher_is_riskier": higher,
+            **{k: int(m[k]) for k in ("tp", "fp", "fn", "tn")},
+            **{k: float(m[k]) for k in ("accuracy", "precision", "recall", "f1", "false_alarm_rate")},
+            "pr_auc": float(_auc(compute_pr_auc, scores[name], gt, higher)),
+            "roc_auc": float(_auc(compute_roc_auc, scores[name], gt, higher)),
+        })
+    return rows
+
+
 def comparison_report(scores, gt, n_samples):
     header = (f"{'Metric':<15} {'Threshold':>10} {'Dir':>6} {'TP':>5} {'FP':>5} "
               f"{'FN':>5} {'TN':>5} {'Acc':>8} {'Prec':>8} {'Recall':>8} "
@@ -128,16 +144,12 @@ def comparison_report(scores, gt, n_samples):
         f"GT collisions: {int(gt.sum())}, GT non-collisions: {int((1 - gt).sum())}",
         "", sep, header, sep,
     ]
-    for name, (_, higher, default) in METRICS.items():
-        pred = np.array([is_collision(name, v) for v in scores[name]], dtype=int)
-        m = collision_metrics_from_labels(pred, gt)
-        pr = _auc(compute_pr_auc, scores[name], gt, higher)
-        roc = _auc(compute_roc_auc, scores[name], gt, higher)
+    for r in metric_rows(scores, gt):
         lines.append(
-            f"{name:<15} {default:>10.3f} {'>' if higher else '<':>6} "
-            f"{int(m['tp']):>5} {int(m['fp']):>5} {int(m['fn']):>5} {int(m['tn']):>5} "
-            f"{m['accuracy']:>8.4f} {m['precision']:>8.4f} {m['recall']:>8.4f} "
-            f"{m['f1']:>8.4f} {m['false_alarm_rate']:>8.4f} {pr:>8.4f} {roc:>8.4f}"
+            f"{r['metric']:<15} {r['threshold']:>10.3f} {'>' if r['higher_is_riskier'] else '<':>6} "
+            f"{r['tp']:>5} {r['fp']:>5} {r['fn']:>5} {r['tn']:>5} "
+            f"{r['accuracy']:>8.4f} {r['precision']:>8.4f} {r['recall']:>8.4f} "
+            f"{r['f1']:>8.4f} {r['false_alarm_rate']:>8.4f} {r['pr_auc']:>8.4f} {r['roc_auc']:>8.4f}"
         )
     lines.append(sep)
     return lines
@@ -234,6 +246,16 @@ def cmd_train(args):
     )
 
 
+def test_groups(samples):
+    """Overall, per site (problem D) and target-only scenes (problem 9)."""
+    groups = {"NGSIM Test Split": samples}
+    for sample in samples:
+        groups.setdefault(f"site {location_of(sample[4][0])}", []).append(sample)
+        if sample[0].shape[2] == 1:
+            groups.setdefault("zero-neighbour samples", []).append(sample)
+    return groups
+
+
 def cmd_eval(args):
     model = build_model()
     norm_stats = load_trained(model)
@@ -242,13 +264,7 @@ def cmd_eval(args):
         test_samples = normalize_samples(test_samples, norm_stats)
     if not test_samples:
         raise SystemExit("No test samples available.")
-    # Overall, per site (problem D) and target-only scenes (problem 9).
-    groups = {"NGSIM Test Split": test_samples}
-    for sample in test_samples:
-        groups.setdefault(f"site {location_of(sample[4][0])}", []).append(sample)
-        if sample[0].shape[2] == 1:
-            groups.setdefault("zero-neighbour samples", []).append(sample)
-    for label, samples in groups.items():
+    for label, samples in test_groups(test_samples).items():
         test_dl = create_dataloader(samples, batch_size=32, shuffle=False)
         print_metrics(
             evaluate_trajectory(model, test_dl, DEVICE),
@@ -256,23 +272,17 @@ def cmd_eval(args):
         )
 
 
-def cmd_collisions(args):
+def collision_scores(model, loader, test_samples, norm_stats, threshold):
     """Score every test target-candidate pair with all METRICS in one pass.
 
+    test_samples are the raw (unnormalized) test split of loader.get_splits().
     Candidates are the nearest vehicles present at the last history frame,
     not the model's risk-selected neighbours, so conflicts the risk field
     missed are evaluated too (SOLUTIONS problem 9).
+    Returns (scores {metric: [values]}, gt labels array, [(target, neighbour)] pairs).
     """
-    model = build_model()
-    norm_stats = load_trained(model)
-    loader = make_loader(args)
-    _, _, test_samples = loader.get_splits()
-    if not test_samples:
-        raise SystemExit("No test samples available.")
     scene_indices = loader._split_indices["test"]
-    T_h, T_f = loader.history_frames, loader.future_frames
-    threshold, chosen = args.collision_threshold, args.collision_metric
-
+    T_f = loader.future_frames
     scores = {name: [] for name in METRICS}
     gt_labels, pairs = [], []
     for i, sample in enumerate(test_samples):
@@ -295,7 +305,19 @@ def cmd_collisions(args):
         pairs.extend((sample[4][0], vehicle_id) for vehicle_id in ids)
         if (i + 1) % 100 == 0:
             logger.info(f"Processed {i + 1}/{len(test_samples)} samples...")
-    gt = np.array(gt_labels)
+    return scores, np.array(gt_labels), pairs
+
+
+def cmd_collisions(args):
+    model = build_model()
+    norm_stats = load_trained(model)
+    loader = make_loader(args)
+    _, _, test_samples = loader.get_splits()
+    if not test_samples:
+        raise SystemExit("No test samples available.")
+    threshold, chosen = args.collision_threshold, args.collision_metric
+    scores, gt, pairs = collision_scores(model, loader, test_samples, norm_stats, threshold)
+    gt_labels = gt.tolist()
 
     # Per-pair log and confusion matrix for the chosen metric.
     pred = [int(is_collision(chosen, v, threshold)) for v in scores[chosen]]

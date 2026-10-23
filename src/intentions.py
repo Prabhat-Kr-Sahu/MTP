@@ -10,6 +10,11 @@ import torch
 
 from src.risk import end_velocity
 
+# sklearn KMeans -> joblib/loky asks `wmic` for the physical core count; wmic is
+# gone on Windows 11 24H2, so it warns with a traceback. loky skips the lookup only
+# when this is below os.cpu_count(); half the logical cores = physical cores with SMT.
+os.environ.setdefault("LOKY_MAX_CPU_COUNT", str(max(1, (os.cpu_count() or 2) // 2)))
+
 
 def fit_intention_codebook(endpoints, k=100, seed=42):
     """Fit k-means codebook on training endpoints.

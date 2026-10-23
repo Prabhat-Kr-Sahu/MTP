@@ -195,9 +195,10 @@ def fit(
                 f"LR: {learning_rate}, Batch: {batch_size}, LR decay: {lr_decay}, "
                 f"Weight decay: {weight_decay}")
 
-    # Load codebook into model's risk decoder
-    model.risk_decoder.set_intentions(torch.from_numpy(intention_centers))
-    logger.info("[Train] Loaded k-means intentions into model")
+    # Load codebook into model's risk decoder (baselines without one skip it)
+    if hasattr(model, "risk_decoder"):
+        model.risk_decoder.set_intentions(torch.from_numpy(intention_centers))
+        logger.info("[Train] Loaded k-means intentions into model")
 
     train_dl = create_dataloader(train_samples, batch_size=batch_size, shuffle=True)
     val_dl = create_dataloader(val_samples, batch_size=batch_size, shuffle=False)
