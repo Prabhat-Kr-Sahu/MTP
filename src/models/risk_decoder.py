@@ -29,9 +29,11 @@ class RiskAttentiveDecoder(nn.Module):
         num_decoder_layers: int = 2,
         dropout: float = 0.1,
         t_future: int = 50,
+        use_risk: bool = True,   # False = STRAP(-RFF): queries see intentions only
     ):
         super().__init__()
         self.k = k_intentions
+        self.use_risk = use_risk
         self.d_model = d_model
         self.t_future = t_future
 
@@ -131,6 +133,9 @@ class RiskAttentiveDecoder(nn.Module):
             dims[:, None, 1:],
             neighbor_mask[:, None] if neighbor_mask is not None else None,
         )
+        if not self.use_risk:
+            # Cuts risk from both the query embedding and the mode weights (uniform).
+            risk_field = torch.zeros_like(risk_field)
 
         # Concatenate risk + intention and embed
         intent_risk = torch.cat([risk_field, intentions], dim=-1)  # (B, K, 6)

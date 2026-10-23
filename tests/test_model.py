@@ -210,3 +210,24 @@ def test_risk_scaled_loss_no_overflow_for_large_risk():
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+@pytest.mark.parametrize("flags", [
+    {"use_spatial": False}, {"use_temporal": False}, {"use_risk_fusion": False},
+])
+def test_strap_ablations_keep_output_shapes(flags):
+    B, N = 2, 4
+    model = STRAP(**flags).eval()
+    traj, goals, risk = model(torch.randn(B, 30, N, 11), torch.ones(B, N, dtype=torch.bool))
+    assert traj.shape == (B, 50, 5) and goals.shape == (B, N - 1, 4) and risk.shape == (B, 100, 2)
+
+
+def test_decoder_without_risk_ignores_neighbour_goals():
+    """STRAP(-RFF): neighbour goals only reach the decoder through the risk field."""
+    torch.manual_seed(0)
+    decoder = RiskAttentiveDecoder(use_risk=False).eval()
+    target = torch.randn(2, 30, 64)
+    mask = torch.ones(2, 3, dtype=torch.bool)
+    out_a, _ = decoder(target, torch.randn(2, 3, 4), mask)
+    out_b, _ = decoder(target, torch.randn(2, 3, 4) * 50, mask)
+    torch.testing.assert_close(out_a, out_b)

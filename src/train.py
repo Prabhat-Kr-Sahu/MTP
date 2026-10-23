@@ -28,6 +28,9 @@ def train_one_epoch(model, optimizer, dataloader, device, use_risk_loss=True, be
     total_goal_loss = 0.0
     total_traj_loss = 0.0
     num_batches = 0
+    # Optional extra training objective that needs the true future (e.g. a diffusion
+    # denoising loss); forward() never sees gt_positions, so models opt in here.
+    aux_loss = getattr(model, "aux_loss", None)
 
     for batch_idx, batch in enumerate(dataloader):
         states, gt_positions, gt_goals, mask, goal_mask, dims = (t.to(device) for t in batch)
@@ -47,6 +50,8 @@ def train_one_epoch(model, optimizer, dataloader, device, use_risk_loss=True, be
                 pred_goals, gt_goals, traj_dist, gt_positions,
                 goal_mask=goal_mask,
             )
+        if aux_loss is not None:
+            loss = loss + aux_loss(states, mask, dims, gt_positions)
 
         # Backward
         optimizer.zero_grad()

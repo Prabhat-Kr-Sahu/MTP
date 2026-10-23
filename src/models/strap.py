@@ -39,10 +39,15 @@ class STRAP(nn.Module):
         num_encoder_layers: int = NUM_ENCODER_LAYERS,
         num_decoder_layers: int = NUM_DECODER_LAYERS,
         dropout: float = DROPOUT,
+        use_spatial: bool = True,       # False = STRAP(-SE) ablation (paper Table III)
+        use_temporal: bool = True,      # False = STRAP(-TE)
+        use_risk_fusion: bool = True,   # False = STRAP(-RFF)
     ):
         super().__init__()
         self.d_model = d_model
         self.k = k_intentions
+        self.use_spatial = use_spatial
+        self.use_temporal = use_temporal
 
         # Motion Encoder
         self.motion_encoder = MotionEncoder(input_dim, d_model, dropout)
@@ -64,7 +69,8 @@ class STRAP(nn.Module):
 
         # Risk-Attentive Decoder
         self.risk_decoder = RiskAttentiveDecoder(
-            d_model, num_heads, k_intentions, num_decoder_layers, dropout
+            d_model, num_heads, k_intentions, num_decoder_layers, dropout,
+            use_risk=use_risk_fusion,
         )
 
     def forward(self, states: torch.Tensor, mask: torch.Tensor = None, dims: torch.Tensor = None):
@@ -86,7 +92,10 @@ class STRAP(nn.Module):
         # so every temporal layer reads a spatial output (paper Eq. 5-7, problem 6).
         C = H_m
         for spatial, temporal in zip(self.spatial_encoders, self.temporal_encoders):
-            C = temporal(spatial(C, mask), mask)
+            if self.use_spatial:
+                C = spatial(C, mask)
+            if self.use_temporal:
+                C = temporal(C, mask)
 
         # Separate target and neighbors
         target_enc = C[:, :, 0, :]  # (B, T_h, D) target vehicle encoding
