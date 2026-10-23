@@ -153,14 +153,16 @@ Start with baselines that bound the problem, then the paper's strongest rival, t
 | # | Notebook | Model | Effort | Adaptation needed |
 | --- | --- | --- | --- | --- |
 | 1 | `cv.ipynb`, `lstm.ipynb` | Constant velocity, target-only LSTM | Hours | CV: wrap `constant_velocity` as a module with tiny fixed sigma, skip training. LSTM: uncomment the template example |
-| 2 | `strap_b.ipynb`, `strap_ablate_*.ipynb` | STRAP-B, STRAP minus spatial / temporal encoder / risk fusion | Hours | `use_risk_loss=False`; ablations subclass `STRAP` and skip one module |
+| 2 | `strap_b.ipynb`, `strap_no_se.ipynb`, `strap_no_te.ipynb`, `strap_no_rff.ipynb` | STRAP-B, STRAP minus spatial / temporal encoder / risk fusion | Hours | `use_risk_loss=False`; ablations subclass `STRAP` and skip one module |
 | 3 | `cs_lstm.ipynb` | CS-LSTM | 1 to 2 days | Build the 13x3 grid from relative lane and longitudinal offset in `states`; port the public PyTorch model |
 | 4 | `stdan.ipynb` | STDAN | 2 to 4 days | No public code; reimplement from the paper. Our encoder blocks cover most of it |
 | 5 | `grip_pp.ipynb` | GRIP++ | 2 days | Code not confirmed; adjacency from `mask` and neighbour distances |
 | 6 | `bat.ipynb` | BAT | 3 days | Public code; add polar coordinates and centrality features from neighbour positions |
 | 7 | `strap_risk_feats.ipynb` | STRAP + TTC/TET/TIT input features | 1 day | Tests risk-as-feature (cognitive-driven model) against risk-as-loss (STRAP-R) on the same backbone |
 | 8 | `strap_kinematic.ipynb` | STRAP with a kinematic bicycle-model output layer | 1 day | Decoder predicts acceleration and yaw rate; integrate to positions (X-TRACK idea) |
-| 9 | `cdstraj.ipynb` or `c2f_tp.ipynb` | Diffusion refinement | 1 to 2 weeks | No public code; highest reported accuracy, highest cost |
+| 9 | `c2f_tp.ipynb` | Diffusion refinement (C2F-TP-style) | 1 to 2 weeks | No public code; highest reported accuracy, highest cost |
+
+Status: all nine rows are implemented as notebooks in this folder, plus `strap_r.ipynb` as the reference. Each notebook opens with a "Decisions & assumptions" table listing where it departs from its paper. Row 9 uses C2F-TP rather than CDSTraj because its coarse-plus-refine design fits our training loop; the denoising loss enters through the `aux_loss` hook in `src/train.py`.
 
 Map-based transformers (MTR, Trajectory Mamba) are left out: without lane polylines in our loader they lose the input their reported gains depend on.
 
