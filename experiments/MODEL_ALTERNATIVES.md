@@ -164,7 +164,43 @@ Start with baselines that bound the problem, then the paper's strongest rival, t
 
 Status: all nine rows are implemented as notebooks in this folder, plus `strap_r.ipynb` as the reference. Each notebook opens with a "Decisions & assumptions" table listing where it departs from its paper. Row 9 uses C2F-TP rather than CDSTraj because its coarse-plus-refine design fits our training loop; the denoising loss enters through the `aux_loss` hook in `src/train.py`.
 
-Map-based transformers (MTR, Trajectory Mamba) are left out: without lane polylines in our loader they lose the input their reported gains depend on.
+### Extended set: every other model named in this doc
+
+All use the same input/output contract as the table above. "Fidelity" says how closely each follows its paper; every notebook's section 0 lists the exact departures.
+
+| Notebook | Model | Fidelity | Notes |
+| --- | --- | --- | --- |
+| `s_lstm.ipynb` | S-LSTM | Paper (Deo & Trivedi's NGSIM variant) | Fully connected pooling on the CS-LSTM grid |
+| `nls_lstm.ipynb` | NLS-LSTM | Paper description | Local conv + non-local attention pooling; manoeuvre labels |
+| `mha_lstm.ipynb` | MHA-LSTM | Paper description | One trajectory mode per attention head |
+| `mfp.ipynb` | MFP | Paper description, simplified | 5 latent modes, no EM, target-only rollout |
+| `s_gan.ipynb` | Social GAN | Paper description | Pooling module + GAN; k = 1 training sample, 20-sample evaluation |
+| `wsip.ipynb` | WSiP | Interpretation | Wave equations are our reading; manoeuvre labels |
+| `miat.ipynb` | MIAT | Paper description | Intention-loss weight is the control knob (1.0) |
+| `hltp.ipynb` | HLTP teacher | Paper description | Student / distillation not built |
+| `pip_noplan.ipynb` | PiP-noPlan | Paper ablation | No ego plan in NGSIM |
+| `cognitive.ipynb` | Cognitive-driven | Interpretation | Leanformer internals and risk tendency index not public |
+| `gnp.ipynb` | GNP | Paper description | Social-force terms are classic Helbing form |
+| `x_track.ipynb` | X-TRACK | Paper description | sLSTM in plain PyTorch; no yaw-rate history in our data |
+| `physics_informed.ipynb` | Physics-informed (IJCAI 24) | Interpretation | Haar wavelet reconstruction, wave fusion, per-mode kinematics |
+| `strap_aux_risk.ipynb` | STRAP + auxiliary risk head | Idea from Wang et al. 2024 | Isolates the auxiliary task on STRAP-R |
+| `mtr_agent.ipynb` | MTR | Paper, agent-only | No lane polylines; uses the 100 k-means intention points |
+| `traj_mamba.ipynb` | Trajectory Mamba | Paper description | Pure-PyTorch Mamba; attention instead of cross-SSM between agents |
+| `cdstraj.ipynb` | CDSTraj | Interpretation | Full-trajectory diffusion with a cross-attention denoiser |
+| `inatran.ipynb` | iNATran | LOOSE | Name + one-line description only |
+| `dacr_amtp.ipynb` | DACR-AMTP | LOOSE | Name + one-line description only |
+| `fhif.ipynb` | FHIF | LOOSE | Name + one-line description only |
+| `gava.ipynb` | GaVa | LOOSE, name only | Paper not found; "gated attention + variational" is a guess |
+| `ts_gan.ipynb` | TS-GAN | LOOSE | Read as transformer social GAN |
+| `matf_gan.ipynb` | MATF-GAN | LOOSE | Multi-agent tensor fusion without a scene image |
+| `cf_lstm.ipynb` | CF-LSTM | LOOSE | Read as cascaded LSTMs |
+| `westny_diffusion.ipynb` | Westny et al. diffusion | LOOSE | Paper not opened; control-space diffusion + kinematics |
+
+LOOSE notebooks are extra baselines, not reproductions: their results do not represent the published models.
+
+Manoeuvre-based models built in this set (NLS-LSTM, WSiP, MIAT, HLTP, PiP-noPlan) train their manoeuvre head on labels derived from the true future through `aux_loss` (lane change if the 5 s lateral offset exceeds 1.85 m; braking if the mean future speed is below 0.8 x the current speed). The earlier `cs_lstm`, `stdan` and `bat` notebooks use latent, unsupervised manoeuvres because they were built before the hook existed.
+
+Map-based transformers (MTR, Trajectory Mamba) run agent-only: without lane polylines in our loader they lose the input their reported gains depend on.
 
 Two checks before trusting any ranking:
 
