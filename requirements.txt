@@ -5,3 +5,5 @@ scikit-learn
 matplotlib
 optuna
 pytest
+nbconvert
+ipykernel

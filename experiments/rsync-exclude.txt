@@ -1,0 +1,14 @@
+# rsync --exclude-from list for pushing this repo to the dslab PC.
+# Generated/large/secret paths: everything else (incl. data/raw/ngsim) goes.
+.git
+.venv
+__pycache__
+.pytest_cache
+checkpoints
+experiments/checkpoints
+experiments/runs
+logs
+graphify-out
+authtokens.txt
+t.txt
+*.tar.gz
