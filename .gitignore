@@ -8,12 +8,12 @@ venv/
 
 # Data, checkpoints, logs (large, generated)
 *.csv
+!experiments/comparison_*.csv
 /data/
 /checkpoints/
 /logs/
 /results/
 /experiments/checkpoints/
-/experiments/runs/
 
 # IDE
 .vscode/
