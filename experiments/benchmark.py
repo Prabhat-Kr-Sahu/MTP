@@ -3,7 +3,9 @@
 Each notebook in experiments/ calls save_result() once and compare() at the end,
 so the comparison section always reflects every model run so far.
 """
+import functools
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -12,8 +14,30 @@ import pandas as pd
 
 EXPERIMENTS_DIR = Path(__file__).resolve().parent
 RESULTS_DIR = EXPERIMENTS_DIR / "results"
+RISK_DIR = RESULTS_DIR / "risk"
+ALTERNATIVES = EXPERIMENTS_DIR / "MODEL_ALTERNATIVES.md"
 HORIZONS = ["rmse_1s", "rmse_2s", "rmse_3s", "rmse_4s", "rmse_5s", "rmse_avg"]
 OVERALL = "NGSIM Test Split"
+
+# "| `name.ipynb` | Model | Fidelity | Notes |" rows of the extended-set table.
+_FIDELITY_ROW = re.compile(r"^\|\s*`([^`]+)\.ipynb`\s*\|[^|]*\|\s*([^|]+?)\s*\|")
+
+
+@functools.lru_cache(maxsize=1)
+def fidelities() -> dict:
+    """{notebook stem: fidelity string} parsed from MODEL_ALTERNATIVES.md.
+
+    One source of truth, so a doc edit cannot drift from the results tables.
+    """
+    if not ALTERNATIVES.exists():
+        return {}
+    return {m[1]: m[2] for m in map(_FIDELITY_ROW.match, ALTERNATIVES.read_text(
+        encoding="utf-8").splitlines()) if m}
+
+
+def is_loose(name: str) -> bool:
+    """True for name-only reimplementations, whose results do not represent the paper."""
+    return "LOOSE" in fidelities().get(name, "")
 
 
 def save_result(result: dict, results_dir: Path = RESULTS_DIR) -> Path:
@@ -79,8 +103,11 @@ def compare(results_dir: Path = RESULTS_DIR, plot: bool = True):
                          marker="o", label=r["name"])
             log = pd.DataFrame(r.get("training_log", []))
             if not log.empty:
-                axes[1].plot(log["epoch"], log["val_rmse"], marker=".", label=r["name"])
-                axes[2].plot(log["epoch"], log["val_loss"], marker=".", label=r["name"])
+                # .to_numpy(): matplotlib indexes with obj[:, None], which pandas 2.x
+                # rejects on a Series ("Multi-dimensional indexing is no longer supported").
+                epoch = log["epoch"].to_numpy()
+                axes[1].plot(epoch, log["val_rmse"].to_numpy(), marker=".", label=r["name"])
+                axes[2].plot(epoch, log["val_loss"].to_numpy(), marker=".", label=r["name"])
         for ax, title, xlabel in zip(axes, ["Test RMSE vs horizon", "Val RMSE", "Val loss"],
                                      ["horizon (s)", "epoch", "epoch"]):
             ax.set(title=title, xlabel=xlabel)
