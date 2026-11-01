@@ -149,3 +149,22 @@ def test_metric_report_falls_back_when_a_label_class_is_missing():
     row = metric_report(scores, np.zeros(50, dtype=int), "min_dist", False, 2.0)
     assert row["threshold_rule"] == "default"
     assert np.isnan(row["pr_auc"]) and np.isnan(row["roc_auc"])
+
+
+def test_report_sweeps_the_label_threshold():
+    """The label rule is the one free parameter that decides whether the
+    comparison says anything, and NGSIM has no real collisions to anchor it.
+    Sweeping it in the report means the expensive scoring run does not have to
+    be repeated to settle it (plan.md section 50)."""
+    result = _Result()
+    report = build_report(result)
+    swept = report["by_label_threshold"]
+    assert set(swept) == {"1", "2", "3", "5"}
+    # Base rate must rise monotonically with a looser distance threshold.
+    rates = [swept[k]["base_rate"] for k in ("1", "2", "3", "5")]
+    assert rates == sorted(rates)
+    for key, block in swept.items():
+        assert set(block["metrics"]) == set(METRICS), key
+    assert set(report["gt_distance_percentiles"]) == {
+        "p0.1", "p0.5", "p1", "p2", "p5", "p10", "p25", "p50"
+    }

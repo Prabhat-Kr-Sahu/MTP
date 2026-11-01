@@ -414,9 +414,23 @@ def metric_report(scores, gt, name, higher_is_riskier, default_threshold):
     return row
 
 
-def build_report(result, oracle=None, metrics=None, n_bins=10):
+LABEL_THRESHOLDS = (1.0, 2.0, 3.0, 5.0)
+
+
+def build_report(result, oracle=None, metrics=None, n_bins=10,
+                 label_thresholds=LABEL_THRESHOLDS):
     """Assemble the JSON-ready report for one RiskScores: rows, the separation
     sanity check, calibration, earliness, stratification and oracle regression.
+
+    `label_thresholds` re-derives the collision labels from the stored
+    per-pair true minimum separation and reports both AUCs at each. The label
+    rule is the one free parameter that decides whether this comparison says
+    anything -- NGSIM has essentially no real collisions, so the positives are
+    whatever a distance threshold declares them to be, and plan.md section 50
+    says that threshold has to be settled experimentally. Sweeping it in the
+    report means the scoring run does not have to be repeated to answer the
+    question, and a base rate too small to support an AUC becomes visible
+    rather than silently producing nan.
     """
     from src.evaluation import collision as C
     from src.evaluation.risk_metrics import METRICS, PROBABILITY_METRICS
@@ -480,9 +494,29 @@ def build_report(result, oracle=None, metrics=None, n_bins=10):
         ]
         stratified[bucket] = {"n_pairs": int(mask.sum()), "rows": bucket_rows}
 
+    by_label_threshold = {}
+    for candidate in label_thresholds:
+        labels = (result.gt_distance < candidate).astype(int)
+        by_label_threshold[f"{candidate:g}"] = {
+            "n_gt_collisions": int(labels.sum()),
+            "base_rate": float(labels.mean()) if labels.size else 0.0,
+            "metrics": {
+                name: {
+                    "pr_auc": _safe(C.compute_pr_auc, result.scores[name], labels, higher),
+                    "roc_auc": _safe(C.compute_roc_auc, result.scores[name], labels, higher),
+                }
+                for name, (_, higher, _) in metrics.items()
+            },
+        }
+
     return {
         **result.summary(),
         "rows": rows, "sanity": sanity, "calibration": calibration,
         "earliness": earliness_out, "stratified": stratified,
         "regression_vs_oracle": regression,
+        "by_label_threshold": by_label_threshold,
+        "gt_distance_percentiles": {
+            f"p{q:g}": float(np.percentile(result.gt_distance, q))
+            for q in (0.1, 0.5, 1, 2, 5, 10, 25, 50)
+        },
     }
