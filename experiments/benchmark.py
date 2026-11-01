@@ -120,3 +120,91 @@ def compare(results_dir: Path = RESULTS_DIR, plot: bool = True):
         if not coll.empty:
             display(coll.unstack("model").style.format(precision=4, na_rep="-"))
     return rmse, coll
+
+
+# --------------------------------------------------------------------------- #
+#  Risk comparison (experiments/results/risk/*.json)
+# --------------------------------------------------------------------------- #
+RISK_COLUMNS = [
+    "threshold", "precision", "recall", "f1", "false_alarm_rate",
+    "recall_at_precision_50", "pr_auc", "roc_auc", "non_finite_fraction",
+]
+
+
+def load_risk_results(results_dir: Path = RISK_DIR) -> list:
+    """Every per-model risk JSON, excluding the shared _oracle.json."""
+    if not Path(results_dir).is_dir():
+        return []
+    return [
+        json.loads(path.read_text(encoding="utf-8"))
+        for path in sorted(Path(results_dir).glob("*.json"))
+        if not path.name.startswith("_")
+    ]
+
+
+def risk_table(results_dir: Path = RISK_DIR) -> pd.DataFrame:
+    """Long table indexed (metric, variant, model) with the headline columns.
+
+    Carries loose_reimplementation through every row, so a LOOSE
+    reimplementation can never be read as the published model it is named for.
+    """
+    rows = []
+    for result in load_risk_results(results_dir):
+        for variant, payload in result.get("variants", {}).items():
+            for row in payload.get("rows", []):
+                rows.append({
+                    "metric": row["metric"], "variant": variant,
+                    "model": result["name"],
+                    "loose_reimplementation": result.get("loose_reimplementation", False),
+                    "higher_is_riskier": row["higher_is_riskier"],
+                    **{c: row.get(c) for c in RISK_COLUMNS},
+                })
+    if not rows:
+        return pd.DataFrame(columns=["metric", "variant", "model", *RISK_COLUMNS])
+    return (pd.DataFrame(rows)
+            .set_index(["metric", "variant", "model"])
+            .sort_index())
+
+
+def risk_stratified_table(results_dir: Path = RISK_DIR) -> pd.DataFrame:
+    """Long table indexed (bucket, metric, variant, model) -> pr_auc / roc_auc / f1.
+
+    The view most likely to separate models: STRAP-B and STRAP-R share an
+    identical average RMSE and differ only once stratified by how imminent the
+    collision is.
+    """
+    rows = []
+    for result in load_risk_results(results_dir):
+        for variant, payload in result.get("variants", {}).items():
+            for bucket, block in payload.get("stratified", {}).items():
+                for row in block.get("rows", []):
+                    rows.append({
+                        "bucket": bucket, "metric": row["metric"],
+                        "variant": variant, "model": result["name"],
+                        "n_pairs": block.get("n_pairs"),
+                        "f1": row.get("f1"), "pr_auc": row.get("pr_auc"),
+                        "roc_auc": row.get("roc_auc"),
+                    })
+    if not rows:
+        return pd.DataFrame(columns=["bucket", "metric", "variant", "model"])
+    return (pd.DataFrame(rows)
+            .set_index(["bucket", "metric", "variant", "model"])
+            .sort_index())
+
+
+def compare_risk(results_dir: Path = RISK_DIR) -> tuple:
+    """Write comparison_risk.csv and comparison_risk_stratified.csv.
+
+    Both land in experiments/, matching the !experiments/comparison_*.csv
+    negation in .gitignore, so they are committable without touching it.
+    """
+    flat = risk_table(results_dir)
+    stratified = risk_stratified_table(results_dir)
+    out = Path(results_dir).parent.parent
+    if not flat.empty:
+        flat.to_csv(out / "comparison_risk.csv")
+        print(f"Saved {out / 'comparison_risk.csv'}")
+    if not stratified.empty:
+        stratified.to_csv(out / "comparison_risk_stratified.csv")
+        print(f"Saved {out / 'comparison_risk_stratified.csv'}")
+    return flat, stratified
