@@ -238,9 +238,15 @@ def main(argv=None):
         try:
             result = score_one(name, loader, test_samples, args, oracle=oracle,
                                oracle_report=oracle_report)
-            (args.out / f"{name}.json").write_text(
-                json.dumps(result, indent=2), encoding="utf-8"
-            )
+            path = args.out / f"{name}.json"
+            if path.exists():
+                # Sources are scored in separate passes, so a later pass adds
+                # its variants to the ones an earlier pass already paid for
+                # rather than discarding them.
+                previous = json.loads(path.read_text(encoding="utf-8"))
+                result["variants"] = {**previous.get("variants", {}),
+                                      **result["variants"]}
+            path.write_text(json.dumps(result, indent=2), encoding="utf-8")
             status = "ok"
         except Exception as error:                      # keep the batch going
             logger.exception("%s failed", name)

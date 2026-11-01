@@ -168,3 +168,30 @@ def test_report_sweeps_the_label_threshold():
     assert set(report["gt_distance_percentiles"]) == {
         "p0.1", "p0.5", "p1", "p2", "p5", "p10", "p25", "p50"
     }
+
+
+def test_a_second_pass_adds_sources_without_dropping_the_first(tmp_path, monkeypatch):
+    """Stage 1 (cv, oracle) and stage 2 (cv_scene, pred) are separate runs over
+    the same result files, so the second write must merge rather than clobber
+    -- otherwise the cheap pass silently destroys an hour of GPU time."""
+    import json
+
+    from experiments import score_risk
+
+    class _Loader:
+        def get_splits(self):
+            return [], [], [object()]
+
+    monkeypatch.setattr(score_risk, "NGSIMDataLoader", lambda **_: _Loader())
+
+    def run(sources):
+        monkeypatch.setattr(score_risk, "score_one", lambda name, *a, **k: {
+            "name": name,
+            "variants": {s: {"rows": []} for s in sources.split(",")}})
+        score_risk.main(["miat", "--sources", sources, "--out", str(tmp_path),
+                         "--force"])
+
+    run("cv")
+    run("cv_scene")
+    saved = json.loads((tmp_path / "miat.json").read_text(encoding="utf-8"))
+    assert set(saved["variants"]) == {"cv", "cv_scene"}
