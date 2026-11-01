@@ -1,0 +1,277 @@
+"""Training pipeline for STRAP."""
+from src.logger import get_logger
+logger = get_logger()
+import torch
+import torch.optim as optim
+import json
+import os
+
+from src.config import (
+    BETA_LOSS, DEVICE, BATCH_SIZE, LEARNING_RATE, NUM_EPOCHS, LR_DECAY,
+    WEIGHT_DECAY, CHECKPOINT_DIR, LOG_DIR, SEED,
+    NORMALIZATION_FILE, INTENTIONS_FILE,
+)
+from src.losses import risk_scaled_loss, basic_loss
+from src.data.loader import create_dataloader
+from src.data.normalization import (
+    compute_normalization_stats, normalize_samples, save_stats,
+)
+from src.evaluation.evaluate import horizon_rmse
+from src.intentions import build_codebook_from_samples, save_codebook
+from src.risk import ground_truth_risk
+
+
+def train_one_epoch(model, optimizer, dataloader, device, use_risk_loss=True, beta=0.0):
+    """Train for one epoch."""
+    model.train()
+    total_loss = 0.0
+    total_goal_loss = 0.0
+    total_traj_loss = 0.0
+    num_batches = 0
+    # Optional extra training objective that needs the true future (e.g. a diffusion
+    # denoising loss); forward() never sees gt_positions, so models opt in here.
+    aux_loss = getattr(model, "aux_loss", None)
+
+    for batch_idx, batch in enumerate(dataloader):
+        states, gt_positions, gt_goals, mask, goal_mask, dims = (t.to(device) for t in batch)
+
+        # Forward pass
+        traj_dist, pred_goals, _ = model(states, mask, dims)
+
+        # Compute loss; gamma_risk comes from the TRUE future (problem 2).
+        if use_risk_loss:
+            loss, gamma, gl, tl = risk_scaled_loss(
+                pred_goals, gt_goals, traj_dist, gt_positions,
+                ground_truth_risk(gt_positions, gt_goals, goal_mask, dims),
+                beta, goal_mask=goal_mask,
+            )
+        else:
+            loss, gl, tl = basic_loss(
+                pred_goals, gt_goals, traj_dist, gt_positions,
+                goal_mask=goal_mask,
+            )
+        if aux_loss is not None:
+            loss = loss + aux_loss(states, mask, dims, gt_positions)
+
+        # Backward
+        optimizer.zero_grad()
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        optimizer.step()
+
+        total_loss += loss.item()
+        total_goal_loss += gl
+        total_traj_loss += tl
+        num_batches += 1
+
+    return total_loss / num_batches, total_goal_loss / num_batches, total_traj_loss / num_batches
+
+
+def validate(model, dataloader, device):
+    """Validate with the basic (unweighted) loss and sample-weighted per-horizon RMSE."""
+    model.eval()
+    squared_error_sum = None
+    sample_count = 0
+    total_loss = 0.0
+    num_batches = 0
+
+    with torch.no_grad():
+        for batch in dataloader:
+            states, gt_positions, gt_goals, mask, goal_mask, dims = (t.to(device) for t in batch)
+
+            traj_dist, pred_goals, _ = model(states, mask, dims)
+
+            # Basic loss for model selection (same for STRAP-B and STRAP-R)
+            loss, _, _ = basic_loss(
+                pred_goals, gt_goals, traj_dist, gt_positions,
+                goal_mask=goal_mask,
+            )
+            total_loss += loss.item()
+            num_batches += 1
+
+            pred_mu = traj_dist[:, :, :2]  # (B, T_f, 2)
+            squared_displacement = (
+                (pred_mu - gt_positions).square().sum(dim=-1)
+            )  # (B, T_f)
+            batch_sum = squared_displacement.sum(dim=0)  # (T_f,)
+            squared_error_sum = (
+                batch_sum if squared_error_sum is None
+                else squared_error_sum + batch_sum
+            )
+            sample_count += gt_positions.shape[0]
+
+    return total_loss / num_batches, horizon_rmse(squared_error_sum, sample_count)
+
+
+def prepare_data(loader, save_dir: str = CHECKPOINT_DIR):
+    """Split, normalize (train stats only) and fit the k-means intention codebook.
+
+    Depends only on the train split, so tuning runs it once for every trial.
+    Returns (train_samples, val_samples, intention_centers).
+    """
+    os.makedirs(save_dir, exist_ok=True)
+    train_samples, val_samples, test_samples = loader.get_splits()
+    stats = loader.get_dataset_stats()
+    logger.info(
+        "Dataset: rows=%s, vehicles=%s, frames=%s, frame_range=%s, "
+        "samples(train/val/test)=%s/%s/%s",
+        stats.get("total_rows", 0), stats.get("unique_vehicles", 0),
+        stats.get("num_frames", 0), stats.get("frame_range", "N/A"),
+        len(train_samples), len(val_samples), len(test_samples),
+    )
+
+    # --- Normalization: compute from TRAINING data only ---
+    logger.info("[Train] Computing normalization statistics from training data...")
+    train_states_list = [s[0] for s in train_samples]  # each is (1, T_h, N, F)
+    norm_stats = compute_normalization_stats(train_states_list)
+    save_stats(norm_stats, f"{save_dir}/{NORMALIZATION_FILE}")
+    logger.info(f"[Train] Saved normalization stats to {save_dir}/{NORMALIZATION_FILE}")
+
+    # Apply normalization to train and val samples
+    train_samples = normalize_samples(train_samples, norm_stats)
+    val_samples = normalize_samples(val_samples, norm_stats)
+
+    # --- K-means intentions: fit on TRAINING endpoints only ---
+    logger.info("[Train] Fitting k-means intention codebook on training data...")
+    # build_codebook_from_samples expects (states, gt_pos, gt_goals) tuples
+    codebook_input = [(sample[0], sample[1], sample[2]) for sample in train_samples]
+    intention_centers = build_codebook_from_samples(codebook_input, k=100, seed=SEED)
+    save_codebook(intention_centers, f"{save_dir}/{INTENTIONS_FILE}")
+    logger.info(f"[Train] Saved intention codebook ({intention_centers.shape}) to "
+          f"{save_dir}/{INTENTIONS_FILE}")
+    return train_samples, val_samples, intention_centers
+
+
+def fit(
+    model,
+    train_samples,
+    val_samples,
+    intention_centers,
+    num_epochs: int = NUM_EPOCHS,
+    use_risk_loss: bool = True,
+    beta: float = BETA_LOSS,
+    learning_rate: float = LEARNING_RATE,
+    batch_size: int = BATCH_SIZE,
+    lr_decay: float = LR_DECAY,
+    weight_decay: float = WEIGHT_DECAY,
+    save_dir: str = CHECKPOINT_DIR,
+    resume_from: str = None,
+    checkpoint_every: int = 2,
+    on_epoch=None,
+):
+    """Epoch loop on prepared samples.
+
+    save_dir=None writes nothing (tuning trials). on_epoch(epoch, log_entry)
+    runs after every epoch; tuning reports and prunes from it.
+    """
+    if save_dir:
+        os.makedirs(save_dir, exist_ok=True)
+        os.makedirs(LOG_DIR, exist_ok=True)
+
+    # Optimizer
+    optimizer = optim.Adam(
+        model.parameters(), lr=learning_rate, weight_decay=weight_decay
+    )
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=lr_decay)
+
+    best_val_loss = float("inf")
+    training_log = []
+    start_epoch = 0
+
+    if resume_from:
+        checkpoint = torch.load(resume_from, map_location=DEVICE, weights_only=False)
+        required_keys = {"model_state_dict", "optimizer_state_dict", "epoch"}
+        missing_keys = required_keys - checkpoint.keys()
+        if missing_keys:
+            raise ValueError(
+                f"Checkpoint {resume_from} is missing required keys: {sorted(missing_keys)}"
+            )
+        model.load_state_dict(checkpoint["model_state_dict"])
+        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        if "scheduler_state_dict" in checkpoint:
+            scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
+        start_epoch = checkpoint["epoch"]
+        best_val_loss = checkpoint.get("best_val_loss", float("inf"))
+        training_log = checkpoint.get("training_log", [])
+        logger.info(f"Resuming from {resume_from} at epoch {start_epoch + 1}")
+
+    logger.info(f"Training STRAP on {DEVICE}")
+    logger.info(f"Epochs: {num_epochs}, Risk Loss: {use_risk_loss}, Beta: {beta}, "
+                f"LR: {learning_rate}, Batch: {batch_size}, LR decay: {lr_decay}, "
+                f"Weight decay: {weight_decay}")
+
+    # Load codebook into model's risk decoder (baselines without one skip it)
+    if hasattr(model, "risk_decoder"):
+        model.risk_decoder.set_intentions(torch.from_numpy(intention_centers))
+        logger.info("[Train] Loaded k-means intentions into model")
+
+    train_dl = create_dataloader(train_samples, batch_size=batch_size, shuffle=True)
+    val_dl = create_dataloader(val_samples, batch_size=batch_size, shuffle=False)
+
+    logger.info(f"Number of training batches: {len(train_dl)}")
+    logger.info(f"Number of validation batches: {len(val_dl)}")
+
+    for epoch in range(start_epoch, num_epochs):
+        train_loss, gl, tl = train_one_epoch(
+            model, optimizer, train_dl, DEVICE, use_risk_loss, beta
+        )
+        val_loss, val_metrics = validate(model, val_dl, DEVICE)
+        val_rmse = val_metrics["rmse_avg"]
+
+        scheduler.step()
+
+        log_entry = {
+            "epoch": epoch + 1,
+            "train_loss": train_loss,
+            "goal_loss": gl,
+            "traj_loss": tl,
+            "val_loss": val_loss,
+            "val_rmse": val_rmse,
+            "lr": optimizer.param_groups[0]["lr"],
+        }
+        training_log.append(log_entry)
+
+        logger.info(f"Epoch {epoch+1}/{num_epochs}: "
+              f"Train Loss={train_loss:.4f} (goal={gl:.4f}, traj={tl:.4f}), "
+              f"Val Loss={val_loss:.4f}, Val RMSE={val_rmse:.4f}")
+
+        if on_epoch:
+            on_epoch(epoch + 1, log_entry)
+        if not save_dir:
+            continue
+
+        # Save best checkpoint
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            torch.save(model.state_dict(), f"{save_dir}/best_model.pt")
+            logger.info(f"  -> Saved best checkpoint (val_loss={val_loss:.4f})")
+
+        checkpoint = {
+            "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "scheduler_state_dict": scheduler.state_dict(),
+            "epoch": epoch + 1,
+            "train_loss": train_loss,
+            "val_loss": val_loss,
+            "best_val_loss": best_val_loss,
+            "training_log": training_log,
+        }
+        torch.save(checkpoint, f"{save_dir}/last_checkpoint.pt")
+        if checkpoint_every > 0 and (epoch + 1) % checkpoint_every == 0:
+            torch.save(checkpoint, f"{save_dir}/epoch_{epoch + 1}.pt")
+
+    if save_dir:
+        # Save training log
+        with open(f"{LOG_DIR}/training_log.json", "w") as f:
+            json.dump(training_log, f, indent=2)
+
+        # Save final model
+        torch.save(model.state_dict(), f"{save_dir}/final_model.pt")
+
+    logger.info("Training complete!")
+    return training_log
+
+
+def train(model, loader, resume_from: str = None, **hparams):
+    """Full training run: prepare data, then fit. hparams are fit()'s keyword args."""
+    return fit(model, *prepare_data(loader), resume_from=resume_from, **hparams)

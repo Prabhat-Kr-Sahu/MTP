@@ -1,0 +1,75 @@
+nohup: ignoring input
+skip bat.ipynb: results/bat.json exists (--force to rerun)
+skip c2f_tp.ipynb: results/c2f_tp.json exists (--force to rerun)
+skip cdstraj.ipynb: results/cdstraj.json exists (--force to rerun)
+skip cf_lstm.ipynb: results/cf_lstm.json exists (--force to rerun)
+skip cognitive.ipynb: results/cognitive.json exists (--force to rerun)
+skip cs_lstm.ipynb: results/cs_lstm.json exists (--force to rerun)
+skip cv.ipynb: results/cv.json exists (--force to rerun)
+[1/32] dacr_amtp.ipynb ... ok (35.7 min, log: experiments/runs/dacr_amtp.log)
+[2/32] fhif.ipynb ... ok (30.4 min, log: experiments/runs/fhif.log)
+[3/32] gava.ipynb ... ok (37.4 min, log: experiments/runs/gava.log)
+[4/32] gnp.ipynb ... ok (91.0 min, log: experiments/runs/gnp.log)
+[5/32] grip_pp.ipynb ... ok (133.9 min, log: experiments/runs/grip_pp.log)
+[6/32] hltp.ipynb ... ok (44.1 min, log: experiments/runs/hltp.log)
+[7/32] inatran.ipynb ... ok (41.9 min, log: experiments/runs/inatran.log)
+[8/32] lstm.ipynb ... ok (26.4 min, log: experiments/runs/lstm.log)
+[9/32] matf_gan.ipynb ... ok (60.7 min, log: experiments/runs/matf_gan.log)
+[10/32] mfp.ipynb ... ok (59.8 min, log: experiments/runs/mfp.log)
+[11/32] mha_lstm.ipynb ... ok (47.5 min, log: experiments/runs/mha_lstm.log)
+[12/32] miat.ipynb ... ok (61.1 min, log: experiments/runs/miat.log)
+[13/32] mtr_agent.ipynb ... ok (65.2 min, log: experiments/runs/mtr_agent.log)
+[14/32] nls_lstm.ipynb ... ok (50.0 min, log: experiments/runs/nls_lstm.log)
+[15/32] physics_informed.ipynb ... ok (35.0 min, log: experiments/runs/physics_informed.log)
+[16/32] pip_noplan.ipynb ... ok (39.0 min, log: experiments/runs/pip_noplan.log)
+[17/32] s_gan.ipynb ... ok (37.1 min, log: experiments/runs/s_gan.log)
+[18/32] s_lstm.ipynb ... ok (29.3 min, log: experiments/runs/s_lstm.log)
+[19/32] stdan.ipynb ... ok (36.0 min, log: experiments/runs/stdan.log)
+[20/32] strap_aux_risk.ipynb ... ok (240.9 min, log: experiments/runs/strap_aux_risk.log)
+[21/32] strap_b.ipynb ... ok (149.7 min, log: experiments/runs/strap_b.log)
+[22/32] strap_kinematic.ipynb ... ok (150.3 min, log: experiments/runs/strap_kinematic.log)
+[23/32] strap_no_rff.ipynb ... ok (148.8 min, log: experiments/runs/strap_no_rff.log)
+[24/32] strap_no_se.ipynb ... ok (79.7 min, log: experiments/runs/strap_no_se.log)
+[25/32] strap_no_te.ipynb ... ok (136.4 min, log: experiments/runs/strap_no_te.log)
+[26/32] strap_r.ipynb ... ok (149.6 min, log: experiments/runs/strap_r.log)
+[27/32] strap_risk_feats.ipynb ... ok (150.1 min, log: experiments/runs/strap_risk_feats.log)
+[28/32] traj_mamba.ipynb ... ok (209.1 min, log: experiments/runs/traj_mamba.log)
+[29/32] ts_gan.ipynb ... ok (41.9 min, log: experiments/runs/ts_gan.log)
+[30/32] westny_diffusion.ipynb ... ok (34.2 min, log: experiments/runs/westny_diffusion.log)
+[31/32] wsip.ipynb ... ok (38.0 min, log: experiments/runs/wsip.log)
+[32/32] x_track.ipynb ... ok (76.8 min, log: experiments/runs/x_track.log)
+
+notebook                           status       minutes
+dacr_amtp.ipynb                    ok             35.7
+fhif.ipynb                         ok             30.4
+gava.ipynb                         ok             37.4
+gnp.ipynb                          ok             91.0
+grip_pp.ipynb                      ok            133.9
+hltp.ipynb                         ok             44.1
+inatran.ipynb                      ok             41.9
+lstm.ipynb                         ok             26.4
+matf_gan.ipynb                     ok             60.7
+mfp.ipynb                          ok             59.8
+mha_lstm.ipynb                     ok             47.5
+miat.ipynb                         ok             61.1
+mtr_agent.ipynb                    ok             65.2
+nls_lstm.ipynb                     ok             50.0
+physics_informed.ipynb             ok             35.0
+pip_noplan.ipynb                   ok             39.0
+s_gan.ipynb                        ok             37.1
+s_lstm.ipynb                       ok             29.3
+stdan.ipynb                        ok             36.0
+strap_aux_risk.ipynb               ok            240.9
+strap_b.ipynb                      ok            149.7
+strap_kinematic.ipynb              ok            150.3
+strap_no_rff.ipynb                 ok            148.8
+strap_no_se.ipynb                  ok             79.7
+strap_no_te.ipynb                  ok            136.4
+strap_r.ipynb                      ok            149.6
+strap_risk_feats.ipynb             ok            150.1
+traj_mamba.ipynb                   ok            209.1
+ts_gan.ipynb                       ok             41.9
+westny_diffusion.ipynb             ok             34.2
+wsip.ipynb                         ok             38.0
+x_track.ipynb                      ok             76.8
+total 2567.2 min; compare with: python -c "from experiments.benchmark import compare; print(compare(plot=False)[0])"

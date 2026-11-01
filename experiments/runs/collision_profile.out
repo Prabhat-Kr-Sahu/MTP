@@ -1,0 +1,68 @@
+2026-11-01 20:02:05,859 - STRAP - INFO - [NGSIMLoader] Loading cached data from /home/st_students/MTP/data/raw/ngsim/ngsim_us-101.csv
+2026-11-01 20:02:13,528 - STRAP - INFO - [NGSIMLoader] Dropping 704,000 duplicate rows (0 duplicate groups differ in other columns)
+2026-11-01 20:02:14,374 - STRAP - INFO - [NGSIMLoader] 'us-101' period 1: 1,180,598 rows, frame_id offset=0
+2026-11-01 20:02:14,401 - STRAP - INFO - [NGSIMLoader] 'us-101' period 2: 1,403,095 rows, frame_id offset=9609
+2026-11-01 20:02:14,428 - STRAP - INFO - [NGSIMLoader] 'us-101' period 3: 1,515,240 rows, frame_id offset=19680
+2026-11-01 20:02:14,429 - STRAP - INFO - [NGSIMLoader] Loading cached data from /home/st_students/MTP/data/raw/ngsim/ngsim_i-80.csv
+2026-11-01 20:02:20,922 - STRAP - INFO - [NGSIMLoader] Dropping 4 duplicate rows (0 duplicate groups differ in other columns)
+2026-11-01 20:02:21,821 - STRAP - INFO - [NGSIMLoader] 'i-80' period 1: 1,262,676 rows, frame_id offset=29708
+2026-11-01 20:02:21,847 - STRAP - INFO - [NGSIMLoader] 'i-80' period 2: 1,549,916 rows, frame_id offset=39801
+2026-11-01 20:02:21,870 - STRAP - INFO - [NGSIMLoader] 'i-80' period 3: 1,753,791 rows, frame_id offset=49668
+2026-11-01 20:02:22,122 - STRAP - INFO - [NGSIMLoader] Combined 2 locations: 8,665,316 total rows
+2026-11-01 20:02:28,014 - STRAP - INFO - [NGSIMLoader] 11779 vehicles with >=80 frames
+2026-11-01 20:09:15,120 - STRAP - INFO - [NGSIMLoader] Built 778717 scenes
+2026-11-01 20:20:13,807 - STRAP - INFO - [NGSIMLoader] Built 778717 training samples
+2026-11-01 20:20:14,166 - STRAP - INFO - [NGSIMLoader] Neighbours per sample: mean=3.77 (paper: 6), zero-neighbour share=2.5%
+2026-11-01 20:20:15,567 - STRAP - INFO - [NGSIMLoader] Per-recording temporal split over 6 recordings: train=540149 {'i-80': 287507, 'us-101': 252642}, val=86077 {'i-80': 50059, 'us-101': 36018}, test=121130 {'i-80': 58995, 'us-101': 62135}
+samples: 121,130   pairs: 1,814,838   distinct targets: 2,162
+pairs by location: {'i-80': 883110, 'us-101': 931728}
+
+===== d_min < 1.0 m =====
+positive pairs: 261 (0.0144 %)
+distinct vehicle-pair events: 13   vehicles involved: 21
+windows per event median/p90/max: 14.00 / 21.80 / 86
+top-10 events hold 236 pairs
+events by location: {'i-80': 10, 'us-101': 3}
+boxes overlap at closest approach: 261 pairs (100.0 %), 13 events (100 %)
+already < 1.0 m at last observed frame: 106 (40.6 %)
+distance at last observed frame p10/p50/p90: 0.27 / 1.84 / 12.00
+closest approach in (0 | <=1 | 1-2 | 2-3 | 3-5 s): [21, 46, 48, 48, 98]
+|longitudinal| at closest p10/p50/p90: 0.01 / 0.11 / 0.43
+|lateral|      at closest p10/p50/p90: 0.02 / 0.17 / 0.38
+side-by-side (|lon| < |lat|): 170
+target speed median: 2.35 m/s   |relative speed| p50/p90: 1.01 / 4.59
+heavy (>8 m) vehicle involved: 0
+
+===== d_min < 2.0 m =====
+positive pairs: 977 (0.0538 %)
+distinct vehicle-pair events: 101   vehicles involved: 126
+windows per event median/p90/max: 9.00 / 16.00 / 90
+top-10 events hold 277 pairs
+events by location: {'i-80': 37, 'us-101': 64}
+boxes overlap at closest approach: 500 pairs (51.2 %), 36 events (36 %)
+already < 2.0 m at last observed frame: 210 (21.5 %)
+distance at last observed frame p10/p50/p90: 0.90 / 7.47 / 20.66
+closest approach in (0 | <=1 | 1-2 | 2-3 | 3-5 s): [88, 209, 195, 176, 309]
+|longitudinal| at closest p10/p50/p90: 0.02 / 0.16 / 0.85
+|lateral|      at closest p10/p50/p90: 0.11 / 1.50 / 1.86
+side-by-side (|lon| < |lat|): 807
+target speed median: 6.09 m/s   |relative speed| p50/p90: 3.52 / 9.52
+heavy (>8 m) vehicle involved: 0
+
+===== d_min < 3.0 m =====
+positive pairs: 9,829 (0.5416 %)
+distinct vehicle-pair events: 914   vehicles involved: 1,051
+windows per event median/p90/max: 10.00 / 18.00 / 93
+top-10 events hold 492 pairs
+events by location: {'i-80': 418, 'us-101': 496}
+boxes overlap at closest approach: 733 pairs (7.5 %), 54 events (6 %)
+already < 3.0 m at last observed frame: 1,573 (16.0 %)
+distance at last observed frame p10/p50/p90: 2.87 / 5.93 / 16.20
+closest approach in (0 | <=1 | 1-2 | 2-3 | 3-5 s): [792, 1905, 1812, 1721, 3599]
+|longitudinal| at closest p10/p50/p90: 0.02 / 0.17 / 0.82
+|lateral|      at closest p10/p50/p90: 1.81 / 2.77 / 2.97
+side-by-side (|lon| < |lat|): 9,501
+target speed median: 6.33 m/s   |relative speed| p50/p90: 2.33 / 6.60
+heavy (>8 m) vehicle involved: 446
+
+negatives: distance at last observed frame p50 15.90 m; all-pairs target speed median 6.80 m/s

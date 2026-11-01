@@ -1,0 +1,94 @@
+"""K-means intention modes for STRAP (plan.md Phase 9 / section 17).
+
+Builds K=100 spatial intention modes from TRAINING ground-truth future
+endpoints only. Each intention is [x, y, vx, vy].
+"""
+import os
+import pickle
+import numpy as np
+import torch
+
+from src.risk import end_velocity
+
+# sklearn KMeans -> joblib/loky asks `wmic` for the physical core count; wmic is
+# gone on Windows 11 24H2, so it warns with a traceback. loky skips the lookup only
+# when this is below os.cpu_count(); half the logical cores = physical cores with SMT.
+os.environ.setdefault("LOKY_MAX_CPU_COUNT", str(max(1, (os.cpu_count() or 2) // 2)))
+
+
+def fit_intention_codebook(endpoints, k=100, seed=42):
+    """Fit k-means codebook on training endpoints.
+
+    Args:
+        endpoints: (N, 4) array of [x, y, vx, vy] training GT goals.
+        k: number of intention modes.
+        seed: random seed.
+    Returns:
+        centers: (K, 4) cluster centers.
+    """
+    endpoints = np.asarray(endpoints, dtype=np.float64)
+    n = len(endpoints)
+    k = min(k, n)
+    try:
+        from sklearn.cluster import KMeans
+
+        km = KMeans(n_clusters=k, random_state=seed, n_init=10)
+        km.fit(endpoints)
+        centers = km.cluster_centers_.astype(np.float32)
+    except Exception:
+        # Fallback: torch-only k-means (env sklearn/psutil broken).
+        centers = _torch_kmeans(
+            torch.from_numpy(endpoints.astype(np.float32)), k=k, seed=seed
+        ).numpy()
+    if len(centers) < k:
+        # Pad by repeating (should not happen with enough training data).
+        pad = np.repeat(centers[-1:], k - len(centers), axis=0)
+        centers = np.concatenate([centers, pad], axis=0)
+    return centers
+
+
+def _torch_kmeans(data, k, seed=42, iters=50):
+    """Minimal k-means with torch (CPU). data: (N, D)."""
+    g = torch.Generator().manual_seed(seed)
+    idx = torch.randperm(data.shape[0], generator=g)[:k]
+    centers = data[idx].clone()
+    for _ in range(iters):
+        dist = torch.cdist(data, centers)  # (N, K)
+        assign = dist.argmin(dim=1)
+        new_centers = centers.clone()
+        for c in range(k):
+            pts = data[assign == c]
+            if len(pts) > 0:
+                new_centers[c] = pts.mean(dim=0)
+        if torch.allclose(new_centers, centers):
+            break
+        centers = new_centers
+    return centers
+
+
+def save_codebook(centers, path):
+    os.makedirs(os.path.dirname(os.path.abspath(path)) if os.path.dirname(path) else ".", exist_ok=True)
+    with open(path, "wb") as f:
+        pickle.dump({"centers": np.asarray(centers, dtype=np.float32)}, f)
+
+
+def load_codebook(path, k=100):
+    with open(path, "rb") as f:
+        data = pickle.load(f)
+    centers = np.asarray(data["centers"], dtype=np.float32)
+    assert centers.shape == (k, 4), f"Expected ({k},4), got {centers.shape}"
+    return centers
+
+
+def build_codebook_from_samples(samples, k=100, seed=42):
+    """Build codebook from training samples.
+
+    Each sample is (states, gt_positions, gt_goals); uses target GT
+    endpoint (final position) + final velocity estimate.
+    """
+    endpoints = []
+    for _, gt_pos, _ in samples:
+        gt = torch.as_tensor(gt_pos).detach().cpu().reshape(-1, 2)
+        # Same 1 s end velocity as the loss weight (p[-1] - p[-11]) / 1 s.
+        endpoints.append(torch.cat([gt[-1], end_velocity(gt)]).numpy())
+    return fit_intention_codebook(np.stack(endpoints), k=k, seed=seed)

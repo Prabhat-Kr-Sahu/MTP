@@ -1,0 +1,124 @@
+$ /usr/bin/python3 -m nbconvert --to notebook --execute --inplace --ExecutePreprocessor.timeout=-1 --ExecutePreprocessor.kernel_name=python3 /home/st_students/MTP/experiments/runs/c2f_tp.ipynb
+started 2026-10-28 15:38:29
+
+[NbConvertApp] Converting notebook /home/st_students/MTP/experiments/runs/c2f_tp.ipynb to notebook
+[IPKernelApp] WARNING | Kernel is running over TCP without encryption. All communication (including code and outputs) is sent in plain text and is susceptible to eavesdropping. Use IPC transport or launch with kernel manager-provisioned CurveZMQ keys to enable transport encryption.
+Traceback (most recent call last):
+  File "/usr/lib/python3.10/runpy.py", line 196, in _run_module_as_main
+    return _run_code(code, main_globals, None,
+  File "/usr/lib/python3.10/runpy.py", line 86, in _run_code
+    exec(code, run_globals)
+  File "/home/st_students/.local/lib/python3.10/site-packages/nbconvert/__main__.py", line 5, in <module>
+    main()
+  File "/home/st_students/.local/lib/python3.10/site-packages/jupyter_core/application.py", line 284, in launch_instance
+    super().launch_instance(argv=argv, **kwargs)
+  File "/home/st_students/.local/lib/python3.10/site-packages/traitlets/config/application.py", line 1080, in launch_instance
+    app.start()
+  File "/home/st_students/.local/lib/python3.10/site-packages/nbconvert/nbconvertapp.py", line 420, in start
+    self.convert_notebooks()
+  File "/home/st_students/.local/lib/python3.10/site-packages/nbconvert/nbconvertapp.py", line 597, in convert_notebooks
+    self.convert_single_notebook(notebook_filename)
+  File "/home/st_students/.local/lib/python3.10/site-packages/nbconvert/nbconvertapp.py", line 563, in convert_single_notebook
+    output, resources = self.export_single_notebook(
+  File "/home/st_students/.local/lib/python3.10/site-packages/nbconvert/nbconvertapp.py", line 487, in export_single_notebook
+    output, resources = self.exporter.from_filename(
+  File "/home/st_students/.local/lib/python3.10/site-packages/nbconvert/exporters/exporter.py", line 201, in from_filename
+    return self.from_file(f, resources=resources, **kw)
+  File "/home/st_students/.local/lib/python3.10/site-packages/nbconvert/exporters/exporter.py", line 220, in from_file
+    return self.from_notebook_node(
+  File "/home/st_students/.local/lib/python3.10/site-packages/nbconvert/exporters/notebook.py", line 36, in from_notebook_node
+    nb_copy, resources = super().from_notebook_node(nb, resources, **kw)
+  File "/home/st_students/.local/lib/python3.10/site-packages/nbconvert/exporters/exporter.py", line 154, in from_notebook_node
+    nb_copy, resources = self._preprocess(nb_copy, resources)
+  File "/home/st_students/.local/lib/python3.10/site-packages/nbconvert/exporters/exporter.py", line 353, in _preprocess
+    nbc, resc = preprocessor(nbc, resc)
+  File "/home/st_students/.local/lib/python3.10/site-packages/nbconvert/preprocessors/base.py", line 48, in __call__
+    return self.preprocess(nb, resources)
+  File "/home/st_students/.local/lib/python3.10/site-packages/nbconvert/preprocessors/execute.py", line 103, in preprocess
+    self.preprocess_cell(cell, resources, index)
+  File "/home/st_students/.local/lib/python3.10/site-packages/nbconvert/preprocessors/execute.py", line 124, in preprocess_cell
+    cell = self.execute_cell(cell, index, store_history=True)
+  File "/home/st_students/.local/lib/python3.10/site-packages/jupyter_core/utils/__init__.py", line 165, in wrapped
+    return loop.run_until_complete(inner)
+  File "/usr/lib/python3.10/asyncio/base_events.py", line 649, in run_until_complete
+    return future.result()
+  File "/home/st_students/.local/lib/python3.10/site-packages/nbclient/client.py", line 1062, in async_execute_cell
+    await self._check_raise_for_error(cell, cell_index, exec_reply)
+  File "/home/st_students/.local/lib/python3.10/site-packages/nbclient/client.py", line 918, in _check_raise_for_error
+    raise CellExecutionError.from_cell_and_msg(cell, exec_reply_content)
+nbclient.exceptions.CellExecutionError: An error occurred while executing the following cell:
+------------------
+rmse_df, collision_df = compare()
+------------------
+
+
+[0;31m---------------------------------------------------------------------------[0m
+[0;31mValueError[0m                                Traceback (most recent call last)
+[0;32m/tmp/ipykernel_24062/2610491400.py[0m in [0;36m<module>[0;34m[0m
+[0;32m----> 1[0;31m [0mrmse_df[0m[0;34m,[0m [0mcollision_df[0m [0;34m=[0m [0mcompare[0m[0;34m([0m[0;34m)[0m[0;34m[0m[0;34m[0m[0m
+[0m
+[0;32m~/MTP/experiments/benchmark.py[0m in [0;36mcompare[0;34m(results_dir, plot)[0m
+[1;32m     80[0m             [0mlog[0m [0;34m=[0m [0mpd[0m[0;34m.[0m[0mDataFrame[0m[0;34m([0m[0mr[0m[0;34m.[0m[0mget[0m[0;34m([0m[0;34m"training_log"[0m[0;34m,[0m [0;34m[[0m[0;34m][0m[0;34m)[0m[0;34m)[0m[0;34m[0m[0;34m[0m[0m
+[1;32m     81[0m             [0;32mif[0m [0;32mnot[0m [0mlog[0m[0;34m.[0m[0mempty[0m[0;34m:[0m[0;34m[0m[0;34m[0m[0m
+[0;32m---> 82[0;31m                 [0maxes[0m[0;34m[[0m[0;36m1[0m[0;34m][0m[0;34m.[0m[0mplot[0m[0;34m([0m[0mlog[0m[0;34m[[0m[0;34m"epoch"[0m[0;34m][0m[0;34m,[0m [0mlog[0m[0;34m[[0m[0;34m"val_rmse"[0m[0;34m][0m[0;34m,[0m [0mmarker[0m[0;34m=[0m[0;34m"."[0m[0;34m,[0m [0mlabel[0m[0;34m=[0m[0mr[0m[0;34m[[0m[0;34m"name"[0m[0;34m][0m[0;34m)[0m[0;34m[0m[0;34m[0m[0m
+[0m[1;32m     83[0m                 [0maxes[0m[0;34m[[0m[0;36m2[0m[0;34m][0m[0;34m.[0m[0mplot[0m[0;34m([0m[0mlog[0m[0;34m[[0m[0;34m"epoch"[0m[0;34m][0m[0;34m,[0m [0mlog[0m[0;34m[[0m[0;34m"val_loss"[0m[0;34m][0m[0;34m,[0m [0mmarker[0m[0;34m=[0m[0;34m"."[0m[0;34m,[0m [0mlabel[0m[0;34m=[0m[0mr[0m[0;34m[[0m[0;34m"name"[0m[0;34m][0m[0;34m)[0m[0;34m[0m[0;34m[0m[0m
+[1;32m     84[0m         for ax, title, xlabel in zip(axes, ["Test RMSE vs horizon", "Val RMSE", "Val loss"],
+
+[0;32m/usr/lib/python3/dist-packages/matplotlib/axes/_axes.py[0m in [0;36mplot[0;34m(self, scalex, scaley, data, *args, **kwargs)[0m
+[1;32m   1630[0m         """
+[1;32m   1631[0m         [0mkwargs[0m [0;34m=[0m [0mcbook[0m[0;34m.[0m[0mnormalize_kwargs[0m[0;34m([0m[0mkwargs[0m[0;34m,[0m [0mmlines[0m[0;34m.[0m[0mLine2D[0m[0;34m)[0m[0;34m[0m[0;34m[0m[0m
+[0;32m-> 1632[0;31m         [0mlines[0m [0;34m=[0m [0;34m[[0m[0;34m*[0m[0mself[0m[0;34m.[0m[0m_get_lines[0m[0;34m([0m[0;34m*[0m[0margs[0m[0;34m,[0m [0mdata[0m[0;34m=[0m[0mdata[0m[0;34m,[0m [0;34m**[0m[0mkwargs[0m[0;34m)[0m[0;34m][0m[0;34m[0m[0;34m[0m[0m
+[0m[1;32m   1633[0m         [0;32mfor[0m [0mline[0m [0;32min[0m [0mlines[0m[0;34m:[0m[0;34m[0m[0;34m[0m[0m
+[1;32m   1634[0m             [0mself[0m[0;34m.[0m[0madd_line[0m[0;34m([0m[0mline[0m[0;34m)[0m[0;34m[0m[0;34m[0m[0m
+
+[0;32m/usr/lib/python3/dist-packages/matplotlib/axes/_base.py[0m in [0;36m__call__[0;34m(self, data, *args, **kwargs)[0m
+[1;32m    310[0m                 [0mthis[0m [0;34m+=[0m [0margs[0m[0;34m[[0m[0;36m0[0m[0;34m][0m[0;34m,[0m[0;34m[0m[0;34m[0m[0m
+[1;32m    311[0m                 [0margs[0m [0;34m=[0m [0margs[0m[0;34m[[0m[0;36m1[0m[0;34m:[0m[0;34m][0m[0;34m[0m[0;34m[0m[0m
+[0;32m--> 312[0;31m             [0;32myield[0m [0;32mfrom[0m [0mself[0m[0;34m.[0m[0m_plot_args[0m[0;34m([0m[0mthis[0m[0;34m,[0m [0mkwargs[0m[0;34m)[0m[0;34m[0m[0;34m[0m[0m
+[0m[1;32m    313[0m [0;34m[0m[0m
+[1;32m    314[0m     [0;32mdef[0m [0mget_next_color[0m[0;34m([0m[0mself[0m[0;34m)[0m[0;34m:[0m[0;34m[0m[0;34m[0m[0m
+
+[0;32m/usr/lib/python3/dist-packages/matplotlib/axes/_base.py[0m in [0;36m_plot_args[0;34m(self, tup, kwargs, return_kwargs)[0m
+[1;32m    485[0m [0;34m[0m[0m
+[1;32m    486[0m         [0;32mif[0m [0mlen[0m[0;34m([0m[0mxy[0m[0;34m)[0m [0;34m==[0m [0;36m2[0m[0;34m:[0m[0;34m[0m[0;34m[0m[0m
+[0;32m--> 487[0;31m             [0mx[0m [0;34m=[0m [0m_check_1d[0m[0;34m([0m[0mxy[0m[0;34m[[0m[0;36m0[0m[0;34m][0m[0;34m)[0m[0;34m[0m[0;34m[0m[0m
+[0m[1;32m    488[0m             [0my[0m [0;34m=[0m [0m_check_1d[0m[0;34m([0m[0mxy[0m[0;34m[[0m[0;36m1[0m[0;34m][0m[0;34m)[0m[0;34m[0m[0;34m[0m[0m
+[1;32m    489[0m         [0;32melse[0m[0;34m:[0m[0;34m[0m[0;34m[0m[0m
+
+[0;32m/usr/lib/python3/dist-packages/matplotlib/cbook/__init__.py[0m in [0;36m_check_1d[0;34m(x)[0m
+[1;32m   1325[0m                     message='Support for multi-dimensional indexing')
+[1;32m   1326[0m [0;34m[0m[0m
+[0;32m-> 1327[0;31m                 [0mndim[0m [0;34m=[0m [0mx[0m[0;34m[[0m[0;34m:[0m[0;34m,[0m [0;32mNone[0m[0;34m][0m[0;34m.[0m[0mndim[0m[0;34m[0m[0;34m[0m[0m
+[0m[1;32m   1328[0m                 [0;31m# we have definitely hit a pandas index or series object[0m[0;34m[0m[0;34m[0m[0m
+[1;32m   1329[0m                 [0;31m# cast to a numpy array.[0m[0;34m[0m[0;34m[0m[0m
+
+[0;32m~/.local/lib/python3.10/site-packages/pandas/core/series.py[0m in [0;36m__getitem__[0;34m(self, key)[0m
+[1;32m   1163[0m             [0;32mreturn[0m [0mself[0m[0;34m.[0m[0m_get_rows_with_mask[0m[0;34m([0m[0mkey[0m[0;34m)[0m[0;34m[0m[0;34m[0m[0m
+[1;32m   1164[0m [0;34m[0m[0m
+[0;32m-> 1165[0;31m         [0;32mreturn[0m [0mself[0m[0;34m.[0m[0m_get_with[0m[0;34m([0m[0mkey[0m[0;34m)[0m[0;34m[0m[0;34m[0m[0m
+[0m[1;32m   1166[0m [0;34m[0m[0m
+[1;32m   1167[0m     [0;32mdef[0m [0m_get_with[0m[0;34m([0m[0mself[0m[0;34m,[0m [0mkey[0m[0;34m)[0m[0;34m:[0m[0;34m[0m[0;34m[0m[0m
+
+[0;32m~/.local/lib/python3.10/site-packages/pandas/core/series.py[0m in [0;36m_get_with[0;34m(self, key)[0m
+[1;32m   1173[0m             )
+[1;32m   1174[0m         [0;32melif[0m [0misinstance[0m[0;34m([0m[0mkey[0m[0;34m,[0m [0mtuple[0m[0;34m)[0m[0;34m:[0m[0;34m[0m[0;34m[0m[0m
+[0;32m-> 1175[0;31m             [0;32mreturn[0m [0mself[0m[0;34m.[0m[0m_get_values_tuple[0m[0;34m([0m[0mkey[0m[0;34m)[0m[0;34m[0m[0;34m[0m[0m
+[0m[1;32m   1176[0m [0;34m[0m[0m
+[1;32m   1177[0m         [0;32melif[0m [0;32mnot[0m [0mis_list_like[0m[0;34m([0m[0mkey[0m[0;34m)[0m[0;34m:[0m[0;34m[0m[0;34m[0m[0m
+
+[0;32m~/.local/lib/python3.10/site-packages/pandas/core/series.py[0m in [0;36m_get_values_tuple[0;34m(self, key)[0m
+[1;32m   1213[0m             [0;31m# the asarray is needed to avoid returning a 2D DatetimeArray[0m[0;34m[0m[0;34m[0m[0m
+[1;32m   1214[0m             [0mresult[0m [0;34m=[0m [0mnp[0m[0;34m.[0m[0masarray[0m[0;34m([0m[0mself[0m[0;34m.[0m[0m_values[0m[0;34m[[0m[0mkey[0m[0;34m][0m[0;34m)[0m[0;34m[0m[0;34m[0m[0m
+[0;32m-> 1215[0;31m             [0mdisallow_ndim_indexing[0m[0;34m([0m[0mresult[0m[0;34m)[0m[0;34m[0m[0;34m[0m[0m
+[0m[1;32m   1216[0m             [0;32mreturn[0m [0mresult[0m[0;34m[0m[0;34m[0m[0m
+[1;32m   1217[0m [0;34m[0m[0m
+
+[0;32m~/.local/lib/python3.10/site-packages/pandas/core/indexers/utils.py[0m in [0;36mdisallow_ndim_indexing[0;34m(result)[0m
+[1;32m    339[0m     """
+[1;32m    340[0m     [0;32mif[0m [0mnp[0m[0;34m.[0m[0mndim[0m[0;34m([0m[0mresult[0m[0;34m)[0m [0;34m>[0m [0;36m1[0m[0;34m:[0m[0;34m[0m[0;34m[0m[0m
+[0;32m--> 341[0;31m         raise ValueError(
+[0m[1;32m    342[0m             [0;34m"Multi-dimensional indexing (e.g. `obj[:, None]`) is no longer "[0m[0;34m[0m[0;34m[0m[0m
+[1;32m    343[0m             [0;34m"supported. Convert to a numpy array before indexing instead."[0m[0;34m[0m[0;34m[0m[0m
+
+[0;31mValueError[0m: Multi-dimensional indexing (e.g. `obj[:, None]`) is no longer supported. Convert to a numpy array before indexing instead.
+

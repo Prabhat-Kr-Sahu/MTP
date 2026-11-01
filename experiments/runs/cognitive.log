@@ -1,0 +1,6 @@
+$ /usr/bin/python3 -m nbconvert --to notebook --execute --inplace --ExecutePreprocessor.timeout=-1 --ExecutePreprocessor.kernel_name=python3 /home/st_students/MTP/experiments/runs/cognitive.ipynb
+started 2026-10-28 20:01:11
+
+[NbConvertApp] Converting notebook /home/st_students/MTP/experiments/runs/cognitive.ipynb to notebook
+[IPKernelApp] WARNING | Kernel is running over TCP without encryption. All communication (including code and outputs) is sent in plain text and is susceptible to eavesdropping. Use IPC transport or launch with kernel manager-provisioned CurveZMQ keys to enable transport encryption.
+[NbConvertApp] Writing 172339 bytes to /home/st_students/MTP/experiments/runs/cognitive.ipynb

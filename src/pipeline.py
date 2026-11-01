@@ -1,0 +1,367 @@
+"""STRAP pipeline entry point: prepare | tune | train | eval | collisions."""
+import argparse
+import json
+import os
+import random
+import sys
+
+# Allow `python src/pipeline.py` (script dir = src/) and `python -m src.pipeline`.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import numpy as np
+import torch
+
+from src.config import (
+    BETA_LOSS, CHECKPOINT_DIR, DEBUG_MAX_ROWS, DEVICE, DROPOUT, DT, INTENTIONS_FILE,
+    LEARNING_RATE, LOG_DIR, NGSIM_LOCATIONS, NORMALIZATION_FILE, NUM_EPOCHS, SEED,
+)
+from src.data.loader import NGSIMDataLoader, create_dataloader, location_of
+from src.data.normalization import apply_normalization, load_stats, normalize_samples
+from src.evaluation.collision import (
+    collision_metrics_from_labels, compute_pr_auc, compute_roc_auc,
+)
+from src.evaluation.evaluate import evaluate_trajectory, print_metrics
+from src.evaluation.risk_metrics import METRICS, is_collision
+from src.intentions import load_codebook
+from src.logger import get_logger
+from src.models.strap import STRAP
+from src.train import fit, prepare_data, train
+
+logger = get_logger()
+
+
+# ----------------------------------------------------------------- helpers
+
+def make_loader(args):
+    """Loader for --locations, or us-101 (debug) / all NGSIM_LOCATIONS."""
+    if args.locations:
+        locations = [loc.strip() for loc in args.locations.split(",") if loc.strip()]
+    else:
+        locations = ["us-101"] if args.debug else NGSIM_LOCATIONS
+    return NGSIMDataLoader(
+        locations=locations, max_rows=DEBUG_MAX_ROWS if args.debug else None
+    )
+
+
+def build_model(dropout: float = DROPOUT):
+    model = STRAP(dropout=dropout).to(DEVICE)
+    n_params = sum(p.numel() for p in model.parameters())
+    logger.info(f"STRAP on {DEVICE}: {n_params:,} parameters")
+    return model
+
+
+def load_trained(model):
+    """Load best checkpoint; return normalization stats.
+
+    The intention codebook is a buffer saved in the checkpoint. The .pkl is
+    only checked against it, never loaded over it (SOLUTIONS problem 3).
+    """
+    checkpoint = f"{CHECKPOINT_DIR}/best_model.pt"
+    if not os.path.exists(checkpoint):
+        raise SystemExit(f"No checkpoint at {checkpoint}. Run --mode train first.")
+    model.load_state_dict(torch.load(checkpoint, map_location=DEVICE, weights_only=True))
+    model.eval()
+    intentions = f"{CHECKPOINT_DIR}/{INTENTIONS_FILE}"
+    if os.path.exists(intentions):
+        saved = torch.from_numpy(load_codebook(intentions)).to(DEVICE)
+        drift = (model.risk_decoder.intention_means - saved).norm(dim=-1).max().item()
+        if drift > 1e-4:
+            logger.warning(
+                f"{INTENTIONS_FILE} differs from the checkpoint's codebook "
+                f"(max {drift:.3f}); using the checkpoint's"
+            )
+    norm_path = f"{CHECKPOINT_DIR}/{NORMALIZATION_FILE}"
+    return load_stats(norm_path) if os.path.exists(norm_path) else None
+
+
+def predict_target(model, sample, norm_stats):
+    """Predicted target future (1, T_f, 2), relative to its last observed
+    position (the frame create_sample uses)."""
+    raw_states, _, _, mask = sample[:4]
+    dims = sample[7].to(DEVICE) if len(sample) > 7 else None
+    states = apply_normalization(raw_states, norm_stats) if norm_stats else raw_states
+    with torch.no_grad():
+        traj_dist, _, _ = model(states.to(DEVICE), mask.to(DEVICE), dims)
+    return traj_dist[:, :, :2]
+
+
+def constant_velocity(position, velocity, T_f):
+    """Roll (M, 2) positions forward at constant (M, 2) velocity -> (1, T_f, M, 2)."""
+    t = torch.arange(1, T_f + 1, device=DEVICE).view(T_f, 1, 1).float() * DT
+    position = torch.as_tensor(position, dtype=torch.float32, device=DEVICE)
+    velocity = torch.as_tensor(velocity, dtype=torch.float32, device=DEVICE)
+    return (position + velocity * t).unsqueeze(0)
+
+
+def _auc(fn, scores, gt, higher_is_riskier):
+    try:
+        return fn(scores, gt, higher_is_riskier=higher_is_riskier)
+    except ValueError:  # no positive or no negative labels
+        return float("nan")
+
+
+def collision_report(metric_name, threshold, m, n_pairs):
+    return [
+        "Collision Prediction Metrics",
+        f"Metric: {metric_name}, Threshold: {threshold}",
+        "=" * 40,
+        f"Total pairs evaluated: {n_pairs}",
+        f"True Positives:  {int(m['tp'])}",
+        f"False Positives: {int(m['fp'])}",
+        f"False Negatives: {int(m['fn'])}",
+        f"True Negatives:  {int(m['tn'])}",
+        f"Accuracy:   {m['accuracy']:.4f}",
+        f"Precision:  {m['precision']:.4f}",
+        f"Recall:     {m['recall']:.4f}",
+        f"F1 Score:   {m['f1']:.4f}",
+    ]
+
+
+def metric_rows(scores, gt):
+    """One dict per risk metric: default-threshold confusion counts, rates and AUCs."""
+    rows = []
+    for name, (_, higher, default) in METRICS.items():
+        pred = np.array([is_collision(name, v) for v in scores[name]], dtype=int)
+        m = collision_metrics_from_labels(pred, gt)
+        rows.append({
+            "metric": name, "threshold": default, "higher_is_riskier": higher,
+            **{k: int(m[k]) for k in ("tp", "fp", "fn", "tn")},
+            **{k: float(m[k]) for k in ("accuracy", "precision", "recall", "f1", "false_alarm_rate")},
+            "pr_auc": float(_auc(compute_pr_auc, scores[name], gt, higher)),
+            "roc_auc": float(_auc(compute_roc_auc, scores[name], gt, higher)),
+        })
+    return rows
+
+
+def comparison_report(scores, gt, n_samples):
+    header = (f"{'Metric':<15} {'Threshold':>10} {'Dir':>6} {'TP':>5} {'FP':>5} "
+              f"{'FN':>5} {'TN':>5} {'Acc':>8} {'Prec':>8} {'Recall':>8} "
+              f"{'F1':>8} {'FPR':>8} {'PR-AUC':>8} {'ROC-AUC':>8}")
+    sep = "=" * len(header)
+    lines = [
+        "Risk Metric Comparison Report",
+        f"Test samples: {n_samples}, Total pairs: {len(gt)}",
+        f"GT collisions: {int(gt.sum())}, GT non-collisions: {int((1 - gt).sum())}",
+        "", sep, header, sep,
+    ]
+    for r in metric_rows(scores, gt):
+        lines.append(
+            f"{r['metric']:<15} {r['threshold']:>10.3f} {'>' if r['higher_is_riskier'] else '<':>6} "
+            f"{r['tp']:>5} {r['fp']:>5} {r['fn']:>5} {r['tn']:>5} "
+            f"{r['accuracy']:>8.4f} {r['precision']:>8.4f} {r['recall']:>8.4f} "
+            f"{r['f1']:>8.4f} {r['false_alarm_rate']:>8.4f} {r['pr_auc']:>8.4f} {r['roc_auc']:>8.4f}"
+        )
+    lines.append(sep)
+    return lines
+
+
+def _write(path, lines):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        f.write("\n".join(lines) + "\n")
+    logger.info(f"Saved {path}")
+
+
+# ------------------------------------------------------------------- modes
+
+def cmd_prepare(args):
+    loader = make_loader(args)
+    train_s, val_s, test_s = loader.get_splits()
+    stats = loader.get_dataset_stats()
+    logger.info(
+        "Dataset prepared: rows=%s, vehicles=%s, frames=%s, frame_range=%s, "
+        "samples(train/val/test)=%s/%s/%s",
+        stats.get("total_rows", 0), stats.get("unique_vehicles", 0),
+        stats.get("num_frames", 0), stats.get("frame_range", "N/A"),
+        len(train_s), len(val_s), len(test_s),
+    )
+
+
+TUNE_DIR = f"{LOG_DIR}/tuning"
+
+
+def cmd_tune(args):
+    """Bayesian (Optuna TPE) search over the STRAP-R training hyperparameters.
+
+    Data is prepared once; every trial trains on the same seeded fraction of
+    the train split and is scored by its best full-val RMSE. The SQLite study
+    resumes when rerun. Writes TUNE_DIR/best_params.json for --mode train --params.
+    """
+    import optuna  # only this mode needs it
+
+    train_s, val_s, centers = prepare_data(make_loader(args), save_dir=TUNE_DIR)
+    k = max(1, int(len(train_s) * args.tune_fraction))
+    train_s = random.Random(SEED).sample(train_s, k)
+    logger.info(f"[Tune] {k} train samples per trial, {len(val_s)} val samples")
+
+    def objective(trial):
+        hp = {
+            "learning_rate": trial.suggest_float("learning_rate", 1e-4, 2e-3, log=True),
+            "lr_decay": trial.suggest_float("lr_decay", 0.5, 0.95),
+            "batch_size": trial.suggest_categorical("batch_size", [32, 64, 128, 256]),  # OOM trials fail, study goes on
+            "weight_decay": trial.suggest_float("weight_decay", 1e-6, 1e-3, log=True),
+            "beta": trial.suggest_float("beta", 0.0, 3.0),
+        }
+        dropout = trial.suggest_float("dropout", 0.0, 0.3)
+        torch.manual_seed(SEED)
+        torch.cuda.empty_cache()  # free memory left by an OOM trial
+
+        def report(epoch, entry):
+            trial.report(entry["val_rmse"], epoch)
+            if trial.should_prune():
+                raise optuna.TrialPruned()
+
+        log = fit(build_model(dropout), train_s, val_s, centers, num_epochs=args.epochs,
+                  use_risk_loss=True, save_dir=None, on_epoch=report, **hp)
+        return min(entry["val_rmse"] for entry in log)
+
+    study = optuna.create_study(
+        direction="minimize", study_name="strap_r",
+        storage=f"sqlite:///{TUNE_DIR}/optuna.db", load_if_exists=True,
+        sampler=optuna.samplers.TPESampler(seed=SEED),
+        pruner=optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=3),
+    )
+    study.optimize(objective, n_trials=args.trials, catch=(torch.OutOfMemoryError,))
+
+    done = study.trials_dataframe().query("state == 'COMPLETE'").sort_values("value")
+    logger.info("[Tune] Top trials:\n" + done.head(5).to_string())
+    logger.info(f"[Tune] Best val RMSE {study.best_value:.4f} with {study.best_params}")
+    with open(f"{TUNE_DIR}/best_params.json", "w") as f:
+        json.dump(study.best_params, f, indent=2)
+    logger.info(f"Saved {TUNE_DIR}/best_params.json")
+
+
+def cmd_train(args):
+    use_risk_loss = not args.basic_loss
+    logger.info("Mode: " + ("STRAP-R (risk-scaled loss)" if use_risk_loss else "STRAP-B (basic loss)"))
+    hp = {"learning_rate": args.lr, "beta": BETA_LOSS}
+    if args.params:
+        with open(args.params) as f:
+            hp.update(json.load(f))  # tuned values override --lr and BETA_LOSS
+        logger.info(f"Hyperparameters from {args.params}: {hp}")
+    train(
+        build_model(hp.pop("dropout", DROPOUT)), make_loader(args),
+        num_epochs=args.epochs, use_risk_loss=use_risk_loss,
+        resume_from=args.resume, checkpoint_every=args.checkpoint_every, **hp,
+    )
+
+
+def test_groups(samples):
+    """Overall, per site (problem D) and target-only scenes (problem 9)."""
+    groups = {"NGSIM Test Split": samples}
+    for sample in samples:
+        groups.setdefault(f"site {location_of(sample[4][0])}", []).append(sample)
+        if sample[0].shape[2] == 1:
+            groups.setdefault("zero-neighbour samples", []).append(sample)
+    return groups
+
+
+def cmd_eval(args):
+    model = build_model()
+    norm_stats = load_trained(model)
+    _, _, test_samples = make_loader(args).get_splits()
+    if norm_stats:
+        test_samples = normalize_samples(test_samples, norm_stats)
+    if not test_samples:
+        raise SystemExit("No test samples available.")
+    for label, samples in test_groups(test_samples).items():
+        test_dl = create_dataloader(samples, batch_size=32, shuffle=False)
+        print_metrics(
+            evaluate_trajectory(model, test_dl, DEVICE),
+            label=f"{label} (n={len(samples)})",
+        )
+
+
+def collision_scores(model, loader, test_samples, norm_stats, threshold):
+    """Score every test target-candidate pair with all METRICS in one pass.
+
+    test_samples are the raw (unnormalized) test split of loader.get_splits().
+    Candidates are the nearest vehicles present at the last history frame,
+    not the model's risk-selected neighbours, so conflicts the risk field
+    missed are evaluated too (SOLUTIONS problem 9).
+    Returns (scores {metric: [values]}, gt labels array, [(target, neighbour)] pairs).
+    """
+    scene_indices = loader._split_indices["test"]
+    T_f = loader.future_frames
+    scores = {name: [] for name in METRICS}
+    gt_labels, pairs = [], []
+    for i, sample in enumerate(test_samples):
+        ids, position, velocity, future = loader.collision_candidates(
+            loader.scenes[scene_indices[i]]
+        )
+        # Pairs whose candidate leaves the road before the target's horizon
+        # starts have no ground truth; drop them.
+        seen = np.isfinite(future[..., 0]).any(axis=0)
+        if not seen.any():
+            continue
+        ids, position, velocity, future = ids[seen], position[seen], velocity[seen], future[:, seen]
+        target = predict_target(model, sample, norm_stats)
+        neighbors = constant_velocity(position, velocity, T_f)
+        gt_target = sample[1][0].numpy()[:, None, :]  # (T_f, 1, 2), same origin
+        gt_d = np.nanmin(np.linalg.norm(future - gt_target, axis=-1), axis=0)
+        for name, (fn, _, _) in METRICS.items():
+            scores[name].extend(fn(target, neighbors, dt=DT, threshold=threshold)[0].tolist())
+        gt_labels.extend((gt_d < threshold).astype(int).tolist())
+        pairs.extend((sample[4][0], vehicle_id) for vehicle_id in ids)
+        if (i + 1) % 100 == 0:
+            logger.info(f"Processed {i + 1}/{len(test_samples)} samples...")
+    return scores, np.array(gt_labels), pairs
+
+
+def cmd_collisions(args):
+    model = build_model()
+    norm_stats = load_trained(model)
+    loader = make_loader(args)
+    _, _, test_samples = loader.get_splits()
+    if not test_samples:
+        raise SystemExit("No test samples available.")
+    threshold, chosen = args.collision_threshold, args.collision_metric
+    scores, gt, pairs = collision_scores(model, loader, test_samples, norm_stats, threshold)
+    gt_labels = gt.tolist()
+
+    # Per-pair log and confusion matrix for the chosen metric.
+    pred = [int(is_collision(chosen, v, threshold)) for v in scores[chosen]]
+    rows = [f"Target_Vehicle_ID,Neighbor_Vehicle_ID,{chosen.upper()}_Value,GT_Collision"]
+    rows += [
+        f"{t},{n},{v:.3f},{g}"
+        for (t, n), v, p, g in zip(pairs, scores[chosen], pred, gt_labels) if p or g
+    ]
+    _write(f"{LOG_DIR}/collisions.txt", rows)
+    report = collision_report(chosen, threshold, collision_metrics_from_labels(pred, gt), len(gt))
+    for line in report:
+        logger.info(line)
+    _write(f"{LOG_DIR}/collision_metrics.txt", report)
+
+    comparison = comparison_report(scores, gt, len(test_samples))
+    for line in comparison:
+        logger.info(line)
+    _write(f"{LOG_DIR}/metric_comparison.txt", comparison)
+
+
+MODES = {"prepare": cmd_prepare, "tune": cmd_tune, "train": cmd_train, "eval": cmd_eval, "collisions": cmd_collisions}
+
+
+def main():
+    parser = argparse.ArgumentParser(description="STRAP Trajectory Prediction Pipeline")
+    parser.add_argument("--mode", default="train", choices=list(MODES))
+    parser.add_argument("--debug", action="store_true", help="Small us-101 subset")
+    parser.add_argument("--basic_loss", action="store_true", help="STRAP-B (no risk-scaled loss)")
+    parser.add_argument("--epochs", type=int, default=NUM_EPOCHS)
+    parser.add_argument("--lr", type=float, default=LEARNING_RATE)
+    parser.add_argument("--resume", default=None, help="Checkpoint path to resume training from")
+    parser.add_argument("--checkpoint-every", type=int, default=2, help="Save epoch_N.pt every N epochs")
+    parser.add_argument("--collision_metric", default="min_dist", choices=list(METRICS))
+    parser.add_argument("--collision_threshold", type=float, default=2.0,
+                        help="Distance (m) for GT collision labels and the chosen metric")
+    parser.add_argument("--locations", default=None, help="Comma-separated NGSIM locations")
+    parser.add_argument("--trials", type=int, default=30, help="Optuna trials for --mode tune")
+    parser.add_argument("--tune-fraction", type=float, default=0.2,
+                        help="Fraction of the train split each tuning trial uses")
+    parser.add_argument("--params", default=None,
+                        help="JSON of tuned hyperparameters for --mode train (from --mode tune)")
+    args = parser.parse_args()
+    MODES[args.mode](args)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,11 @@
+                                                 description  ... site i-80 avg
+model                                                         ...              
+cognitive  Cognitive-driven: safety (TTC/TET/TIT) + behav...  ...      2.127572
+cf_lstm    LOOSE: cascaded LSTMs (vehicle states, then ta...  ...      2.213457
+cs_lstm    CS-LSTM: LSTM encoders + 13x3 convolutional so...  ...      2.242034
+bat        BAT-style: centrality behaviour features + pol...  ...      2.274607
+cdstraj    CDSTraj-style: spatial-temporal interaction en...  ...      2.931058
+cv         Constant velocity: last speed rolled forward, ...  ...      3.011207
+c2f_tp     C2F-TP-style: multimodal coarse predictor + co...  ...      6.468335
+
+[7 rows x 13 columns]
