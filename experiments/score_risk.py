@@ -109,7 +109,7 @@ def load_notebook_model(name, device=DEVICE, load_weights=True, stats=None):
     return model.eval().to(device), namespace
 
 
-def score_one(name, loader, test_samples, args, oracle=None):
+def score_one(name, loader, test_samples, args, oracle=None, oracle_report=None):
     """Score one model across the requested sources; returns the result dict."""
     model, namespace = load_notebook_model(
         name, device=args.device, load_weights=not args.random_weights,
@@ -118,8 +118,10 @@ def score_one(name, loader, test_samples, args, oracle=None):
     norm_stats = namespace["norm_stats"]
     variants = {}
     for source in args.sources:
-        if source == "oracle" and oracle is not None:
-            variants[source] = build_report(oracle, oracle=oracle)
+        if source == "oracle" and oracle_report is not None:
+            # Identical for every model, so reuse it rather than repeating a
+            # full AUC sweep over every pair and measure ten times over.
+            variants[source] = oracle_report
             continue
         started = time.time()
         scored = score_split(
@@ -212,7 +214,7 @@ def main(argv=None):
     # The oracle source reads true futures on both sides, so its scores do not
     # depend on the model at all: score it once and reuse it for every model,
     # both as a variant and as the regression target for the others.
-    oracle = None
+    oracle = oracle_report = None
     if "oracle" in args.sources:
         model, namespace = load_notebook_model(
             pending[0], device=args.device,
@@ -223,8 +225,9 @@ def main(argv=None):
             threshold=args.threshold, source="oracle",
             batch_size=args.batch_size, device=args.device,
         )
+        oracle_report = build_report(oracle, oracle=oracle)
         (args.out / "_oracle.json").write_text(
-            json.dumps(build_report(oracle, oracle=oracle), indent=2), encoding="utf-8"
+            json.dumps(oracle_report, indent=2), encoding="utf-8"
         )
         logger.info("oracle: %d pairs, %d collisions", oracle.n_pairs,
                     oracle.n_collisions)
@@ -233,7 +236,8 @@ def main(argv=None):
     for name in pending:
         started = time.time()
         try:
-            result = score_one(name, loader, test_samples, args, oracle=oracle)
+            result = score_one(name, loader, test_samples, args, oracle=oracle,
+                               oracle_report=oracle_report)
             (args.out / f"{name}.json").write_text(
                 json.dumps(result, indent=2), encoding="utf-8"
             )
