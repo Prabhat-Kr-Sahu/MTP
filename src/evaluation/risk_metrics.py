@@ -427,7 +427,14 @@ def p_coll_mc(target, neighbors, dt=DT, threshold=2.0, **ctx):
 
     Draws MC_SAMPLES trajectories via the Cholesky factor of each step's
     covariance (so rho is exact, unlike p_coll_gauss), and counts the fraction
-    that overlap the neighbour box at any step. Seeded for reproducibility.
+    that overlap the neighbour box at any step.
+
+    The noise is drawn at shape (draws, 1, T, 2) and broadcast across the
+    batch, i.e. common random numbers: every pair is evaluated against the
+    same set of perturbations. That makes a pair's score independent of which
+    batch it happened to land in -- drawing at batch shape instead made the
+    result depend on --batch-size -- and it reduces the variance of
+    comparisons between measures, which is what this estimator is for.
     """
     sigma, rho, ego_dims, other_dims, _ = _context(target, neighbors, dt, ctx)
     half_long, half_lat = _half_extents(ego_dims, other_dims)
@@ -443,8 +450,8 @@ def p_coll_mc(target, neighbors, dt=DT, threshold=2.0, **ctx):
     while drawn < MC_SAMPLES:
         n = min(MC_CHUNK, MC_SAMPLES - drawn)
         eps = torch.randn(
-            n, *target.shape, generator=generator, dtype=target.dtype
-        ).to(target.device)                                      # (n,B,T,2)
+            n, 1, target.shape[1], 2, generator=generator, dtype=target.dtype
+        ).to(target.device)                                      # (n,1,T,2)
         # Cholesky of [[sx^2, r sx sy], [r sx sy, sy^2]]
         dx = sx * eps[..., 0:1]
         dy = sy * (r * eps[..., 0:1] + (1 - r * r).clamp(min=0).sqrt() * eps[..., 1:2])
