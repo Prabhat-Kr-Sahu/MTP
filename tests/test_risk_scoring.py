@@ -210,3 +210,23 @@ def test_unknown_source_is_rejected():
     _, _, test_samples = loader.get_splits()
     with pytest.raises(ValueError, match="source must be one of"):
         score_split(_ZeroPredictor(), loader, test_samples, None, source="nope")
+
+
+def test_oracle_sigma_collapses_the_gaussian_to_exact_box_overlap():
+    """The oracle source has no predictive spread, so rather than skip the
+    probability measures or feed them a fake sigma that looks like a real
+    number, it passes ORACLE_SIGMA -- which turns the Gaussian box integral
+    into the exact geometric overlap indicator the oracle should report."""
+    from src.evaluation.risk_metrics import p_coll_gauss
+    from src.evaluation.risk_scoring import ORACLE_SIGMA
+
+    context = {"ego_dims": torch.tensor([[4.5, 1.8]]),
+               "other_dims": torch.tensor([[[4.5, 1.8]]]),
+               "rho": torch.zeros(1, 1),
+               "sigma": torch.full((1, 1, 2), ORACLE_SIGMA)}
+    for (dx, dy), expected in [((0.0, 0.0), 1.0), ((4.4, 1.7), 1.0),
+                               ((4.6, 1.7), 0.0), ((4.4, 1.9), 0.0),
+                               ((10.0, 0.0), 0.0)]:
+        got = p_coll_gauss(torch.zeros(1, 1, 2),
+                           torch.tensor([[[[dx, dy]]]]), **context).item()
+        assert got == pytest.approx(expected, abs=1e-6), (dx, dy)
