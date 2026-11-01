@@ -376,3 +376,110 @@ def _score_batch(model, loader, pending, norm_stats, threshold, source, device,
         "gt_time": np.concatenate(times), "pairs": np.concatenate(pair_ids),
         "n_filled": filled,
     }
+
+
+# --------------------------------------------------------------------------- #
+#  Reporting
+# --------------------------------------------------------------------------- #
+def _safe(fn, *args, **kwargs):
+    """AUCs raise on a degenerate label set; report nan rather than abort."""
+    try:
+        return fn(*args, **kwargs)
+    except ValueError:
+        return float("nan")
+
+
+def metric_report(scores, gt, name, higher_is_riskier, default_threshold):
+    """One row: operating point under the shared ROC rule, plus both AUCs."""
+    from src.evaluation import collision as C
+    from src.evaluation.risk_metrics import is_collision
+
+    chosen = _safe(C.select_threshold, scores, gt, higher_is_riskier)
+    threshold = default_threshold if np.isnan(chosen) else chosen
+    predicted = is_collision(name, scores, threshold)
+    row = {
+        "metric": name,
+        "higher_is_riskier": bool(higher_is_riskier),
+        "default_threshold": float(default_threshold),
+        "threshold": float(threshold),
+        "threshold_rule": "default" if np.isnan(chosen) else "roc_nearest_01",
+        "non_finite_fraction": float(np.mean(~np.isfinite(scores))),
+        **C.collision_metrics_from_labels(predicted.astype(int), gt),
+        "recall_at_precision_50": _safe(
+            C.recall_at_precision, scores, gt, higher_is_riskier, 0.5
+        ),
+        "pr_auc": _safe(C.compute_pr_auc, scores, gt, higher_is_riskier),
+        "roc_auc": _safe(C.compute_roc_auc, scores, gt, higher_is_riskier),
+    }
+    return row
+
+
+def build_report(result, oracle=None, metrics=None, n_bins=10):
+    """Assemble the JSON-ready report for one RiskScores: rows, the separation
+    sanity check, calibration, earliness, stratification and oracle regression.
+    """
+    from src.evaluation import collision as C
+    from src.evaluation.risk_metrics import METRICS, PROBABILITY_METRICS
+
+    metrics = METRICS if metrics is None else metrics
+    gt = result.gt
+    positive, negative = gt == 1, gt == 0
+
+    rows, sanity, calibration, earliness_out, regression = [], {}, {}, {}, {}
+    for name, (_, higher_is_riskier, default_threshold) in metrics.items():
+        scores = result.scores[name]
+        rows.append(metric_report(scores, gt, name, higher_is_riskier,
+                                  default_threshold))
+
+        # Doc section C4: mean risk on collision vs non-collision pairs. Run
+        # this first -- weak separation means something is wrong upstream and
+        # no amount of AUC reporting will rescue the result.
+        finite = np.isfinite(scores)
+        sanity[name] = {
+            "mean_collision": float(scores[positive & finite].mean())
+            if (positive & finite).any() else None,
+            "mean_non_collision": float(scores[negative & finite].mean())
+            if (negative & finite).any() else None,
+        }
+
+        if name in PROBABILITY_METRICS and finite.all():
+            calibration[name] = {
+                **C.murphy_decomposition(scores, gt, n_bins=n_bins),
+                "log_loss": C.log_loss(scores, gt),
+                "reliability_bins": C.reliability_bins(scores, gt, n_bins=n_bins),
+            }
+
+        if name in result.prefix_scores and positive.any():
+            threshold = rows[-1]["threshold"]
+            earliness_out[name] = {
+                **C.earliness(result.prefix_scores[name], gt, result.gt_time,
+                              threshold, higher_is_riskier, PREFIX_SECONDS),
+                "lead_time_at_80_recall": _safe(
+                    C.lead_time_at_recall, result.prefix_scores[name], gt,
+                    result.gt_time, higher_is_riskier, 0.8, PREFIX_SECONDS,
+                ),
+            }
+
+        if oracle is not None and name in oracle.scores:
+            regression[name] = C.risk_regression(scores, oracle.scores[name])
+
+    stratified = {}
+    for bucket, mask in C.stratify(result.gt_time, gt).items():
+        if not mask.any():
+            continue
+        # This bucket's positives against the full non-collision background:
+        # "can the measure separate a collision this imminent from safe traffic".
+        keep = mask | negative
+        labels = mask[keep].astype(int)
+        bucket_rows = [
+            metric_report(result.scores[name][keep], labels, name, higher, default)
+            for name, (_, higher, default) in metrics.items()
+        ]
+        stratified[bucket] = {"n_pairs": int(mask.sum()), "rows": bucket_rows}
+
+    return {
+        **result.summary(),
+        "rows": rows, "sanity": sanity, "calibration": calibration,
+        "earliness": earliness_out, "stratified": stratified,
+        "regression_vs_oracle": regression,
+    }
