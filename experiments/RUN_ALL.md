@@ -13,7 +13,9 @@ What it does per notebook:
 4. the notebook itself saves `experiments/results/<EXP_NAME>.json` and its checkpoints
    under `experiments/checkpoints/<EXP_NAME>/`.
 
-The notebooks tracked in git are never modified, and `experiments/runs/` is gitignored.
+The notebooks tracked in git are never modified. `experiments/runs/` **is** tracked
+(it was un-ignored in 09b1500 so the executed notebooks and logs could be committed);
+it is excluded from the rsync *upload* only, by `experiments/rsync-exclude.txt`.
 A notebook whose `results/<EXP_NAME>.json` already exists is **skipped**, so the batch is
 resumable: rerun the same command after a crash and it picks up where it stopped.
 
@@ -128,9 +130,9 @@ rsync -av "$DSLAB:~/MTP/experiments/results/" MTP/experiments/results/   # the J
 rsync -av "$DSLAB:~/MTP/experiments/runs/" MTP/experiments/runs/         # optional: executed notebooks + logs
 ```
 
-The JSONs are small and tracked in git, and `compare()` rebuilds both CSVs from them (the
-CSVs themselves are gitignored by the `*.csv` rule), so the first command is enough to write
-up the comparison locally. The executed notebooks in `runs/` carry the plots and cell output
+The JSONs are small and tracked in git, and `compare()` rebuilds both CSVs from them, so the
+first command is enough to write up the comparison locally. The CSVs are committable too:
+`.gitignore` ignores `*.csv` but negates `!experiments/comparison_*.csv`. The executed notebooks in `runs/` carry the plots and cell output
 if you want a notebook as it ran. Checkpoints are large — leave them on the PC unless you
 need to re-evaluate.
 
@@ -143,3 +145,87 @@ need to re-evaluate.
 
 Common ones: CUDA OOM → lower `batch_size` in that notebook's `HPARAMS`; a notebook killed
 by the OS → check `free -h` / `nvidia-smi` for another user's job on the same GPU.
+
+---
+
+## Risk scoring pass (`experiments/score_risk.py`)
+
+Separate from the notebook batch. It scores **already-trained** checkpoints with the full
+risk-measure suite and writes `experiments/results/risk/<model>.json`. It never touches
+`experiments/results/<model>.json`, so the committed RMSE benchmark stays intact.
+
+### Why not just rerun the notebooks with `RUN_COLLISIONS = True`
+
+Notebook cell 16 calls `fit()` unconditionally, so re-executing the ten best notebooks would
+retrain for roughly 25 h to re-derive checkpoints that already exist, and cell 25 would
+overwrite their committed result JSONs. `score_risk.py` reaches each notebook's `build_model()`
+by exec'ing its cells 4 (imports), 7 (config) and 13 (model) and skipping cell 10, the
+expensive data load — `build_model()` needs only `norm_stats` from it, which comes from the
+checkpoint directory.
+
+### Prerequisites
+
+```bash
+# pytest is not installed system-wide on the box
+pip3 install --user pytest
+
+# hard gate: never start a GPU batch on a red suite
+cd ~/MTP && /usr/bin/python3 -m pytest tests -q
+
+# the checkpoints must be present; they live only on this machine
+ls experiments/checkpoints/*/best_model.pt | wc -l
+```
+
+### Running
+
+```bash
+# what would be scored, with the LOOSE reimplementations flagged
+/usr/bin/python3 experiments/score_risk.py --list
+
+# mandatory timing probe first: the scene sources are CPU-bound on create_sample,
+# so a faster GPU does not help and the cost must be measured, not assumed
+/usr/bin/python3 experiments/score_risk.py miat --sources pred \
+    --sample-stride 200 --force
+
+# stage 1 -- cheap: the model-free oracle plus the continuity variant
+nohup /usr/bin/python3 experiments/score_risk.py --top 10 --sources cv,oracle \
+    > experiments/runs/score_risk_cv.out 2>&1 &
+
+# stage 2 -- the predictor-contribution pair, on a subsample
+nohup /usr/bin/python3 experiments/score_risk.py --top 10 --sources cv_scene,pred \
+    --sample-stride 4 > experiments/runs/score_risk_pred.out 2>&1 &
+```
+
+`--random-weights` skips the checkpoints to smoke-test the data path. It warns loudly and
+records `random_weights: true` in the output, because the scores from such a run are
+meaningless.
+
+### The four neighbour-future sources
+
+| source | target future | neighbour future | what its difference buys you |
+|---|---|---|---|
+| `cv` | model | constant velocity | continuity with the original 11-metric definition |
+| `cv_scene` | model | constant velocity | matched control for `pred` |
+| `pred` | model | model | `pred - cv_scene` = the predictor's contribution over kinematics |
+| `oracle` | ground truth | ground truth | `oracle - cv` separates a weak predictor from a weak label rule |
+
+`oracle` is model-free, so it is scored once and reused for every model, both as a variant and
+as the regression target for the others.
+
+### After the pass
+
+```bash
+/usr/bin/python3 -c "from experiments.benchmark import compare_risk; compare_risk()"
+```
+
+writes `experiments/comparison_risk.csv` and `experiments/comparison_risk_stratified.csv`,
+both committable under the `!experiments/comparison_*.csv` negation. Pull back with:
+
+```bash
+rsync -av -e 'ssh -p 555' "$DSLAB:~/MTP/experiments/results/risk/" MTP/experiments/results/risk/
+rsync -av -e 'ssh -p 555' "$DSLAB:~/MTP/experiments/comparison_risk*.csv" MTP/experiments/
+```
+
+**Never add `--delete` to the upload rsync.** `experiments/checkpoints` is in
+`rsync-exclude.txt`, which is right for upload but means `--delete` would wipe the only copy
+of all 39 trained models.
