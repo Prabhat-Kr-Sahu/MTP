@@ -72,6 +72,19 @@ def _velocity_n(trajs, dt):
     return vel
 
 
+def _replace_nan(values, replacement):
+    """Replace only NaN, leaving infinities intact.
+
+    torch.nan_to_num also rewrites +/-inf to the dtype's finite extremes unless
+    posinf/neginf are given explicitly. That silently turned a genuine "no
+    event" inf into 3.4028e38 (float32 max), which both misrepresents the
+    quantity and overflows a float32 mean downstream.
+    """
+    return values.nan_to_num(
+        nan=replacement, posinf=float("inf"), neginf=float("-inf")
+    )
+
+
 def _min_over_time(values):
     """Min over the time axis, treating NaN as "no interaction at this step".
 
@@ -79,18 +92,20 @@ def _min_over_time(values):
     torch.min propagates NaN -- which would silently poison every score on the
     oracle and pred_gt variants. All-NaN pairs yield +inf, i.e. no event.
     """
-    return values.nan_to_num(nan=float("inf")).min(dim=1).values
+    return _replace_nan(values, float("inf")).min(dim=1).values
 
 
 def _max_over_time(values, empty=0.0):
     """Max over the time axis, treating NaN as absent. All-NaN pairs give `empty`."""
-    filled = values.nan_to_num(nan=float("-inf")).max(dim=1).values
-    return torch.where(torch.isfinite(filled), filled, torch.full_like(filled, empty))
+    filled = _replace_nan(values, float("-inf")).max(dim=1).values
+    return torch.where(
+        filled == float("-inf"), torch.full_like(filled, empty), filled
+    )
 
 
 def _sum_over_time(values):
     """Sum over the time axis, treating NaN as zero contribution."""
-    return values.nan_to_num(nan=0.0).sum(dim=1)
+    return _replace_nan(values, 0.0).sum(dim=1)
 
 
 def _relative(target, neighbors, dt):
@@ -259,7 +274,7 @@ def rd(target, neighbors, dt=DT, threshold=2.0, **_):
 
 def tmd(target, neighbors, dt=DT, threshold=2.0, **_):
     """Time to Minimum Distance."""
-    dist = pairwise_distance(target, neighbors).nan_to_num(nan=float("inf"))
+    dist = _replace_nan(pairwise_distance(target, neighbors), float("inf"))
     return dist.min(dim=1).indices.float() * dt
 
 
@@ -271,7 +286,7 @@ def s_field(target, neighbors, dt=DT, threshold=2.0, **_):
 
 def o_field(target, neighbors, dt=DT, threshold=2.0, **_):
     """Uncalibrated STRAP O-field from min distance and its time (d*=5, t*=2)."""
-    dist = pairwise_distance(target, neighbors).nan_to_num(nan=float("inf"))
+    dist = _replace_nan(pairwise_distance(target, neighbors), float("inf"))
     d_min, t_idx = dist.min(dim=1)
     return compute_o_field(d_min, t_idx.float() * dt)
 
@@ -301,14 +316,24 @@ def ttc_true(target, neighbors, dt=DT, threshold=2.0, **_):
 
 
 def _cpa(target, neighbors, dt):
-    """(dce, ttce) from the step whose constant-velocity CPA is smallest."""
+    """(dce, ttce) from the step whose constant-velocity CPA is smallest.
+
+    `ttce` is inf when the closest approach falls beyond the prediction
+    horizon: closest_approach extrapolates at constant relative velocity, and
+    for a near-stationary pair that puts the encounter millions of seconds out,
+    which is not a time this model has any claim on. `dce` keeps the
+    extrapolated distance, since that extrapolation is what distinguishes it
+    from min_dist.
+    """
     delta, rel_vel, _ = _relative(target, neighbors, dt)
     cpa_dist, cpa_time = closest_approach(delta, rel_vel)
-    cpa_dist = cpa_dist.nan_to_num(nan=float("inf"))
+    cpa_dist = _replace_nan(cpa_dist, float("inf"))
     idx = cpa_dist.argmin(dim=1, keepdim=True)
     dce = cpa_dist.gather(1, idx).squeeze(1)
-    offset = cpa_time.nan_to_num(nan=0.0).gather(1, idx).squeeze(1)
-    return dce, idx.squeeze(1).float() * dt + offset
+    offset = _replace_nan(cpa_time, 0.0).gather(1, idx).squeeze(1)
+    horizon = target.shape[1] * dt
+    time = idx.squeeze(1).float() * dt + offset
+    return dce, torch.where(time <= horizon, time, torch.full_like(time, float("inf")))
 
 
 def dce(target, neighbors, dt=DT, threshold=2.0, **_):
@@ -515,9 +540,9 @@ def delta_v(target, neighbors, dt=DT, threshold=2.0, **ctx):
     Mass is proxied as RHO_VEHICLE x length x width -- NGSIM carries no masses.
     """
     series, _, _ = _delta_v_series(target, neighbors, dt, ctx)
-    dist = pairwise_distance(target, neighbors).nan_to_num(nan=float("inf"))
+    dist = _replace_nan(pairwise_distance(target, neighbors), float("inf"))
     idx = dist.argmin(dim=1, keepdim=True)
-    return series.nan_to_num(nan=0.0).gather(1, idx).squeeze(1)
+    return _replace_nan(series, 0.0).gather(1, idx).squeeze(1)
 
 
 def conflict_index(target, neighbors, dt=DT, threshold=2.0, **ctx):

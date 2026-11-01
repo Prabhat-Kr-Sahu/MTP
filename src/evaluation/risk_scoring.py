@@ -434,12 +434,15 @@ def build_report(result, oracle=None, metrics=None, n_bins=10):
         # Doc section C4: mean risk on collision vs non-collision pairs. Run
         # this first -- weak separation means something is wrong upstream and
         # no amount of AUC reporting will rescue the result.
+        # float64: several measures reach 1e12+, which overflows a float32 sum.
         finite = np.isfinite(scores)
+        wide = scores.astype(np.float64)
         sanity[name] = {
-            "mean_collision": float(scores[positive & finite].mean())
+            "mean_collision": float(wide[positive & finite].mean())
             if (positive & finite).any() else None,
-            "mean_non_collision": float(scores[negative & finite].mean())
+            "mean_non_collision": float(wide[negative & finite].mean())
             if (negative & finite).any() else None,
+            "finite_fraction": float(finite.mean()),
         }
 
         if name in PROBABILITY_METRICS and finite.all():

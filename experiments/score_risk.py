@@ -31,7 +31,13 @@ import pandas as pd  # noqa: E402
 import torch  # noqa: E402
 
 from experiments.benchmark import RISK_DIR, fidelities, is_loose  # noqa: E402
-from src.config import DEVICE, NGSIM_LOCATIONS, NORMALIZATION_FILE, SEED  # noqa: E402
+from src.config import (  # noqa: E402
+    DEBUG_MAX_ROWS,
+    DEVICE,
+    NGSIM_LOCATIONS,
+    NORMALIZATION_FILE,
+    SEED,
+)
 from src.data.loader import NGSIMDataLoader  # noqa: E402
 from src.data.normalization import load_stats  # noqa: E402
 from src.evaluation.risk_metrics import EARLINESS_METRICS, SCALE_CONSTANTS  # noqa: E402
@@ -105,7 +111,10 @@ def load_notebook_model(name, device=DEVICE, load_weights=True, stats=None):
 
 def score_one(name, loader, test_samples, args, oracle=None):
     """Score one model across the requested sources; returns the result dict."""
-    model, namespace = load_notebook_model(name, device=args.device)
+    model, namespace = load_notebook_model(
+        name, device=args.device, load_weights=not args.random_weights,
+        stats=args.stats_override,
+    )
     norm_stats = namespace["norm_stats"]
     variants = {}
     for source in args.sources:
@@ -134,6 +143,8 @@ def score_one(name, loader, test_samples, args, oracle=None):
         "threshold_rule": "roc_nearest_01",
         "scale_constants": SCALE_CONSTANTS,
         "seed": SEED,
+        "random_weights": bool(args.random_weights),
+        "debug": bool(args.debug),
         "variants": variants,
     }
 
@@ -151,6 +162,11 @@ def main(argv=None):
     parser.add_argument("--sample-stride", type=int, default=1,
                         help="subsample the split for the costly scene sources")
     parser.add_argument("--out", type=Path, default=RISK_DIR)
+    parser.add_argument("--debug", action="store_true",
+                        help="us-101 only, capped rows -- for smoke tests")
+    parser.add_argument("--random-weights", action="store_true",
+                        help="skip loading checkpoints; exercises the data path "
+                             "only, so the SCORES ARE MEANINGLESS")
     parser.add_argument("--force", action="store_true", help="rescore existing results")
     parser.add_argument("--list", action="store_true", help="show the selection and exit")
     args = parser.parse_args(argv)
@@ -160,6 +176,15 @@ def main(argv=None):
     unknown = set(args.sources) - set(NEIGHBOUR_SOURCES)
     if unknown:
         parser.error(f"unknown sources {sorted(unknown)}; pick from {NEIGHBOUR_SOURCES}")
+
+    args.stats_override = None
+    if args.random_weights:
+        import torch as _torch
+        from src.config import STATE_DIM
+        args.stats_override = {"mean": _torch.zeros(STATE_DIM),
+                               "std": _torch.ones(STATE_DIM)}
+        logger.warning("--random-weights: checkpoints are NOT loaded, so the "
+                       "scores in this run are meaningless. Smoke test only.")
 
     models = args.models or top_models(args.top)
     if args.list:
@@ -177,7 +202,10 @@ def main(argv=None):
         return 0
 
     torch.manual_seed(SEED)
-    loader = NGSIMDataLoader(locations=NGSIM_LOCATIONS)
+    loader = NGSIMDataLoader(
+        locations=["us-101"] if args.debug else NGSIM_LOCATIONS,
+        max_rows=DEBUG_MAX_ROWS if args.debug else None,
+    )
     _, _, test_samples = loader.get_splits()
     logger.info("test split: %d samples", len(test_samples))
 
@@ -186,7 +214,10 @@ def main(argv=None):
     # both as a variant and as the regression target for the others.
     oracle = None
     if "oracle" in args.sources:
-        model, namespace = load_notebook_model(pending[0], device=args.device)
+        model, namespace = load_notebook_model(
+            pending[0], device=args.device,
+            load_weights=not args.random_weights, stats=args.stats_override,
+        )
         oracle = score_split(
             model, loader, test_samples, namespace["norm_stats"],
             threshold=args.threshold, source="oracle",
