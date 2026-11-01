@@ -1,0 +1,154 @@
+/home/st_students/.local/lib/python3.10/site-packages/matplotlib/projections/__init__.py:63: UserWarning: Unable to import Axes3D. This may be due to multiple versions of Matplotlib being installed (e.g. as a system package and as a pip package). As a result, the 3D projection is not available.
+  warnings.warn("Unable to import Axes3D. This may be due to multiple versions of "
+2026-11-01 18:22:37,596 - STRAP - INFO - [NGSIMLoader] Loading cached data from /home/st_students/MTP/data/raw/ngsim/ngsim_us-101.csv
+2026-11-01 18:22:44,950 - STRAP - INFO - [NGSIMLoader] Dropping 704,000 duplicate rows (0 duplicate groups differ in other columns)
+2026-11-01 18:22:45,836 - STRAP - INFO - [NGSIMLoader] 'us-101' period 1: 1,180,598 rows, frame_id offset=0
+2026-11-01 18:22:45,863 - STRAP - INFO - [NGSIMLoader] 'us-101' period 2: 1,403,095 rows, frame_id offset=9609
+2026-11-01 18:22:45,889 - STRAP - INFO - [NGSIMLoader] 'us-101' period 3: 1,515,240 rows, frame_id offset=19680
+2026-11-01 18:22:45,891 - STRAP - INFO - [NGSIMLoader] Loading cached data from /home/st_students/MTP/data/raw/ngsim/ngsim_i-80.csv
+2026-11-01 18:22:52,160 - STRAP - INFO - [NGSIMLoader] Dropping 4 duplicate rows (0 duplicate groups differ in other columns)
+2026-11-01 18:22:53,042 - STRAP - INFO - [NGSIMLoader] 'i-80' period 1: 1,262,676 rows, frame_id offset=29708
+2026-11-01 18:22:53,069 - STRAP - INFO - [NGSIMLoader] 'i-80' period 2: 1,549,916 rows, frame_id offset=39801
+2026-11-01 18:22:53,091 - STRAP - INFO - [NGSIMLoader] 'i-80' period 3: 1,753,791 rows, frame_id offset=49668
+2026-11-01 18:22:53,347 - STRAP - INFO - [NGSIMLoader] Combined 2 locations: 8,665,316 total rows
+2026-11-01 18:22:59,117 - STRAP - INFO - [NGSIMLoader] 11779 vehicles with >=80 frames
+2026-11-01 18:29:29,247 - STRAP - INFO - [NGSIMLoader] Built 778717 scenes
+2026-11-01 18:39:52,717 - STRAP - INFO - [NGSIMLoader] Built 778717 training samples
+2026-11-01 18:39:53,033 - STRAP - INFO - [NGSIMLoader] Neighbours per sample: mean=3.77 (paper: 6), zero-neighbour share=2.5%
+2026-11-01 18:39:54,469 - STRAP - INFO - [NGSIMLoader] Per-recording temporal split over 6 recordings: train=540149 {'i-80': 287507, 'us-101': 252642}, val=86077 {'i-80': 50059, 'us-101': 36018}, test=121130 {'i-80': 58995, 'us-101': 62135}
+2026-11-01 18:39:54,496 - STRAP - INFO - test split: 121130 samples
+2026-11-01 18:40:06,416 - STRAP - INFO - risk scoring [cv_scene]: 25600/121130 samples
+2026-11-01 18:40:17,680 - STRAP - INFO - risk scoring [cv_scene]: 51200/121130 samples
+2026-11-01 18:40:29,340 - STRAP - INFO - risk scoring [cv_scene]: 76800/121130 samples
+2026-11-01 18:40:40,868 - STRAP - INFO - risk scoring [cv_scene]: 102400/121130 samples
+2026-11-01 18:41:23,292 - STRAP - INFO - miat / cv_scene: 440276 pairs, 912 collisions, 1.5 min
+2026-11-01 18:43:20,015 - STRAP - INFO - risk scoring [pred]: 25600/121130 samples
+2026-11-01 18:44:49,335 - STRAP - INFO - risk scoring [pred]: 51200/121130 samples
+2026-11-01 18:46:25,890 - STRAP - INFO - risk scoring [pred]: 76800/121130 samples
+2026-11-01 18:47:59,840 - STRAP - INFO - risk scoring [pred]: 102400/121130 samples
+2026-11-01 18:49:33,542 - STRAP - INFO - miat / pred: 440276 pairs, 912 collisions, 8.2 min
+2026-11-01 18:49:50,796 - STRAP - INFO - risk scoring [cv_scene]: 25600/121130 samples
+2026-11-01 18:50:06,605 - STRAP - INFO - risk scoring [cv_scene]: 51200/121130 samples
+2026-11-01 18:50:23,020 - STRAP - INFO - risk scoring [cv_scene]: 76800/121130 samples
+2026-11-01 18:50:39,114 - STRAP - INFO - risk scoring [cv_scene]: 102400/121130 samples
+2026-11-01 18:51:24,647 - STRAP - INFO - traj_mamba / cv_scene: 440276 pairs, 912 collisions, 1.9 min
+2026-11-01 18:53:44,420 - STRAP - INFO - risk scoring [pred]: 25600/121130 samples
+2026-11-01 18:55:38,454 - STRAP - INFO - risk scoring [pred]: 51200/121130 samples
+2026-11-01 18:57:36,735 - STRAP - INFO - risk scoring [pred]: 76800/121130 samples
+2026-11-01 18:59:26,910 - STRAP - INFO - risk scoring [pred]: 102400/121130 samples
+2026-11-01 19:01:15,766 - STRAP - INFO - traj_mamba / pred: 440276 pairs, 912 collisions, 9.8 min
+2026-11-01 19:01:26,916 - STRAP - INFO - risk scoring [cv_scene]: 25600/121130 samples
+2026-11-01 19:01:37,924 - STRAP - INFO - risk scoring [cv_scene]: 51200/121130 samples
+2026-11-01 19:01:48,987 - STRAP - INFO - risk scoring [cv_scene]: 76800/121130 samples
+2026-11-01 19:02:04,935 - STRAP - INFO - risk scoring [cv_scene]: 102400/121130 samples
+2026-11-01 19:02:46,729 - STRAP - INFO - x_track / cv_scene: 440276 pairs, 912 collisions, 1.5 min
+2026-11-01 19:04:38,722 - STRAP - INFO - risk scoring [pred]: 25600/121130 samples
+2026-11-01 19:06:08,046 - STRAP - INFO - risk scoring [pred]: 51200/121130 samples
+2026-11-01 19:07:48,405 - STRAP - INFO - risk scoring [pred]: 76800/121130 samples
+2026-11-01 19:09:17,848 - STRAP - INFO - risk scoring [pred]: 102400/121130 samples
+2026-11-01 19:10:49,516 - STRAP - INFO - x_track / pred: 440276 pairs, 912 collisions, 8.1 min
+2026-11-01 19:11:00,282 - STRAP - INFO - risk scoring [cv_scene]: 25600/121130 samples
+2026-11-01 19:11:10,866 - STRAP - INFO - risk scoring [cv_scene]: 51200/121130 samples
+2026-11-01 19:11:21,555 - STRAP - INFO - risk scoring [cv_scene]: 76800/121130 samples
+2026-11-01 19:11:32,222 - STRAP - INFO - risk scoring [cv_scene]: 102400/121130 samples
+2026-11-01 19:12:14,119 - STRAP - INFO - dacr_amtp / cv_scene: 440276 pairs, 912 collisions, 1.4 min
+2026-11-01 19:14:09,503 - STRAP - INFO - risk scoring [pred]: 25600/121130 samples
+2026-11-01 19:15:37,338 - STRAP - INFO - risk scoring [pred]: 51200/121130 samples
+2026-11-01 19:17:11,611 - STRAP - INFO - risk scoring [pred]: 76800/121130 samples
+2026-11-01 19:18:44,963 - STRAP - INFO - risk scoring [pred]: 102400/121130 samples
+2026-11-01 19:20:17,013 - STRAP - INFO - dacr_amtp / pred: 440276 pairs, 912 collisions, 8.1 min
+2026-11-01 19:20:27,951 - STRAP - INFO - risk scoring [cv_scene]: 25600/121130 samples
+2026-11-01 19:20:38,686 - STRAP - INFO - risk scoring [cv_scene]: 51200/121130 samples
+2026-11-01 19:20:49,528 - STRAP - INFO - risk scoring [cv_scene]: 76800/121130 samples
+2026-11-01 19:21:00,339 - STRAP - INFO - risk scoring [cv_scene]: 102400/121130 samples
+2026-11-01 19:21:42,655 - STRAP - INFO - stdan / cv_scene: 440276 pairs, 912 collisions, 1.4 min
+2026-11-01 19:23:33,580 - STRAP - INFO - risk scoring [pred]: 25600/121130 samples
+2026-11-01 19:25:01,274 - STRAP - INFO - risk scoring [pred]: 51200/121130 samples
+2026-11-01 19:26:40,360 - STRAP - INFO - risk scoring [pred]: 76800/121130 samples
+2026-11-01 19:28:08,508 - STRAP - INFO - risk scoring [pred]: 102400/121130 samples
+2026-11-01 19:29:41,019 - STRAP - INFO - stdan / pred: 440276 pairs, 912 collisions, 8.0 min
+2026-11-01 19:29:52,244 - STRAP - INFO - risk scoring [cv_scene]: 25600/121130 samples
+2026-11-01 19:30:03,350 - STRAP - INFO - risk scoring [cv_scene]: 51200/121130 samples
+2026-11-01 19:30:14,586 - STRAP - INFO - risk scoring [cv_scene]: 76800/121130 samples
+2026-11-01 19:30:25,848 - STRAP - INFO - risk scoring [cv_scene]: 102400/121130 samples
+2026-11-01 19:31:08,240 - STRAP - INFO - mfp / cv_scene: 440276 pairs, 912 collisions, 1.4 min
+2026-11-01 19:33:06,668 - STRAP - INFO - risk scoring [pred]: 25600/121130 samples
+2026-11-01 19:34:36,834 - STRAP - INFO - risk scoring [pred]: 51200/121130 samples
+2026-11-01 19:36:13,573 - STRAP - INFO - risk scoring [pred]: 76800/121130 samples
+2026-11-01 19:37:49,250 - STRAP - INFO - risk scoring [pred]: 102400/121130 samples
+2026-11-01 19:39:20,513 - STRAP - INFO - mfp / pred: 440276 pairs, 912 collisions, 8.2 min
+2026-11-01 19:39:32,254 - STRAP - INFO - risk scoring [cv_scene]: 25600/121130 samples
+2026-11-01 19:39:43,596 - STRAP - INFO - risk scoring [cv_scene]: 51200/121130 samples
+2026-11-01 19:39:54,956 - STRAP - INFO - risk scoring [cv_scene]: 76800/121130 samples
+2026-11-01 19:40:06,294 - STRAP - INFO - risk scoring [cv_scene]: 102400/121130 samples
+2026-11-01 19:40:48,631 - STRAP - INFO - cognitive / cv_scene: 440276 pairs, 912 collisions, 1.5 min
+2026-11-01 19:42:42,406 - STRAP - INFO - risk scoring [pred]: 25600/121130 samples
+2026-11-01 19:44:16,718 - STRAP - INFO - risk scoring [pred]: 51200/121130 samples
+2026-11-01 19:45:53,648 - STRAP - INFO - risk scoring [pred]: 76800/121130 samples
+2026-11-01 19:47:29,374 - STRAP - INFO - risk scoring [pred]: 102400/121130 samples
+2026-11-01 19:49:02,929 - STRAP - INFO - cognitive / pred: 440276 pairs, 912 collisions, 8.2 min
+2026-11-01 19:49:13,733 - STRAP - INFO - risk scoring [cv_scene]: 25600/121130 samples
+2026-11-01 19:49:24,222 - STRAP - INFO - risk scoring [cv_scene]: 51200/121130 samples
+2026-11-01 19:49:34,851 - STRAP - INFO - risk scoring [cv_scene]: 76800/121130 samples
+2026-11-01 19:49:45,447 - STRAP - INFO - risk scoring [cv_scene]: 102400/121130 samples
+2026-11-01 19:50:27,328 - STRAP - INFO - inatran / cv_scene: 440276 pairs, 912 collisions, 1.4 min
+/home/st_students/.local/lib/python3.10/site-packages/torch/nn/modules/transformer.py:502: UserWarning: The PyTorch API of nested tensors is in prototype stage and will change in the near future. (Triggered internally at ../aten/src/ATen/NestedTensorImpl.cpp:178.)
+  output = torch._nested_tensor_from_mask(
+2026-11-01 19:52:17,850 - STRAP - INFO - risk scoring [pred]: 25600/121130 samples
+2026-11-01 19:53:44,744 - STRAP - INFO - risk scoring [pred]: 51200/121130 samples
+2026-11-01 19:55:23,117 - STRAP - INFO - risk scoring [pred]: 76800/121130 samples
+2026-11-01 19:56:50,414 - STRAP - INFO - risk scoring [pred]: 102400/121130 samples
+2026-11-01 19:58:22,495 - STRAP - INFO - inatran / pred: 440276 pairs, 912 collisions, 7.9 min
+2026-11-01 19:58:33,427 - STRAP - INFO - risk scoring [cv_scene]: 25600/121130 samples
+2026-11-01 19:58:44,051 - STRAP - INFO - risk scoring [cv_scene]: 51200/121130 samples
+2026-11-01 19:58:54,778 - STRAP - INFO - risk scoring [cv_scene]: 76800/121130 samples
+2026-11-01 19:59:05,482 - STRAP - INFO - risk scoring [cv_scene]: 102400/121130 samples
+2026-11-01 19:59:47,094 - STRAP - INFO - physics_informed / cv_scene: 440276 pairs, 912 collisions, 1.4 min
+2026-11-01 20:01:41,831 - STRAP - INFO - risk scoring [pred]: 25600/121130 samples
+2026-11-01 20:03:09,689 - STRAP - INFO - risk scoring [pred]: 51200/121130 samples
+2026-11-01 20:04:45,413 - STRAP - INFO - risk scoring [pred]: 76800/121130 samples
+2026-11-01 20:06:18,810 - STRAP - INFO - risk scoring [pred]: 102400/121130 samples
+2026-11-01 20:07:48,258 - STRAP - INFO - physics_informed / pred: 440276 pairs, 912 collisions, 8.0 min
+2026-11-01 20:07:58,988 - STRAP - INFO - risk scoring [cv_scene]: 25600/121130 samples
+2026-11-01 20:08:09,620 - STRAP - INFO - risk scoring [cv_scene]: 51200/121130 samples
+2026-11-01 20:08:20,325 - STRAP - INFO - risk scoring [cv_scene]: 76800/121130 samples
+2026-11-01 20:08:31,199 - STRAP - INFO - risk scoring [cv_scene]: 102400/121130 samples
+2026-11-01 20:09:13,101 - STRAP - INFO - mha_lstm / cv_scene: 440276 pairs, 912 collisions, 1.4 min
+2026-11-01 20:11:03,263 - STRAP - INFO - risk scoring [pred]: 25600/121130 samples
+2026-11-01 20:12:35,609 - STRAP - INFO - risk scoring [pred]: 51200/121130 samples
+2026-11-01 20:14:09,187 - STRAP - INFO - risk scoring [pred]: 76800/121130 samples
+2026-11-01 20:15:36,889 - STRAP - INFO - risk scoring [pred]: 102400/121130 samples
+2026-11-01 20:17:13,030 - STRAP - INFO - mha_lstm / pred: 440276 pairs, 912 collisions, 8.0 min
+device: cuda
+MIAT: 194,986 parameters
+device: cuda
+TrajectoryMamba: 121,207 parameters
+device: cuda
+XTrack: 166,405 parameters
+device: cuda
+DACRAMTP: 254,150 parameters
+device: cuda
+STDAN: 217,483 parameters
+device: cuda
+MFP: 77,786 parameters
+device: cuda
+CognitiveModel: 227,979 parameters
+device: cuda
+INATran: 173,381 parameters
+device: cuda
+PhysicsInformed: 212,684 parameters
+device: cuda
+MHALSTM: 146,825 parameters
+
+model                  status         minutes
+miat                   ok                 9.7
+traj_mamba             ok                11.7
+x_track                ok                 9.6
+dacr_amtp              ok                 9.5
+stdan                  ok                 9.4
+mfp                    ok                 9.7
+cognitive              ok                 9.7
+inatran                ok                 9.3
+physics_informed       ok                 9.4
+mha_lstm               ok                 9.4
+total 97.4 min
