@@ -70,6 +70,90 @@ pair's true minimum separation, so `build_report` re-derives labels at **1, 2, 3
 reports both AUCs and the base rate at each, alongside the percentiles of the true separation.
 `plan.md` §50 already required this threshold to be settled experimentally.
 
+### 2.1a How a label is built
+
+Model-free: computed from true trajectories only, so all ten models score against identical
+labels.
+
+1. **Sample** — one target vehicle, 3 s observed history (30 frames at 10 Hz) and 5 s
+   (50 frames) of future; windows start every 10 frames.
+2. **Split** — the test split is the last 20 % of each recording in time, with a full-window
+   guard gap after the validation cut so no frame occurs in two splits.
+3. **Candidates** (`cv`, `oracle`) — at the last observed frame, the 15 vehicles nearest the
+   target, drawn from the global frame index rather than the model's risk-selected neighbour
+   set (`loader.collision_candidates`). A candidate with no future position at all is dropped.
+   The scene sources (`cv_scene`, `pred`) instead use the scene's own neighbours.
+4. **Label** — over the 50 future frames, the true **centre-to-centre** distance between target
+   and candidate; *d_min* is its minimum (absent frames skipped) and *t_min* when it occurs.
+   **Positive iff d_min < 2.0 m.**
+
+Centre distance, not box overlap: for two 4.5 × 1.8 m cars, 2 m apart means the boxes
+overlap if one is directly behind the other, and ~0.2 m of clearance if they are side by side.
+
+### 2.1b What the labelled set looks like
+
+Full NGSIM test split, `cv` candidate set. Produced by a model-free profiling pass over the
+same `_candidates` / `_labels` code the scoring run uses.
+
+| | |
+|---|---|
+| Test samples | 121,130, from **2,162** distinct target vehicles (US-101 1,169 · I-80 993) |
+| Target–neighbour pairs | 1,814,838 (~15 per sample; US-101 931,728 · I-80 883,110) |
+| Positives at 1 / **2** / 3 / 5 m | 261 / **977** / 9,829 / 177,769 |
+| Base rate at 1 / **2** / 3 / 5 m | 0.014 % / **0.054 %** / 0.54 % / 9.8 % |
+| True minimum separation, percentiles | p0.1 2.47 m · p1 3.17 · p5 3.83 · p10 5.09 · p50 13.4 m |
+| Scene-neighbour set (`cv_scene`, `pred`) | 440,276 pairs, 912 positives (0.21 %) |
+
+**Positives are few independent events, each counted many times.** Overlapping windows
+(stride 10 frames ≪ 80-frame window), and each vehicle appearing in turn as the target, count
+one encounter repeatedly:
+
+| threshold | positive pairs | **distinct vehicle-pair events** | windows per event (median / max) | top-10 events hold | events with boxes overlapping |
+|---|---|---|---|---|---|
+| 1 m | 261 | **13** | 14 / 86 | 236 pairs (90 %) | 13 (100 %) |
+| 2 m | 977 | **101** | 9 / 90 | 277 pairs (28 %) | 36 (36 %) |
+| 3 m | 9,829 | **914** | 10 / 93 | 492 pairs (5 %) | 54 (6 %) |
+
+**Geometry of the 2 m positives** (at the moment of closest approach):
+
+| | value |
+|---|---|
+| longitudinal offset, median (p10–p90) | **0.16 m** (0.02–0.85) |
+| lateral offset, median (p10–p90) | **1.50 m** (0.11–1.86) |
+| side-by-side (longitudinal < lateral offset) | 807 of 977 (83 %) |
+| bounding boxes physically overlapping | 500 of 977 pairs (51 %), 36 of 101 events |
+| already < 2 m at the last observed frame | 210 (21.5 %) |
+| distance at last observed frame, median | 7.47 m (negatives: 15.9 m) |
+| closest approach in 0 / ≤1 / 1–2 / 2–3 / 3–5 s | 88 / 209 / 195 / 176 / 309 |
+| target speed, median | 6.1 m/s (all pairs: 6.8 m/s) |
+| relative speed, median (p90) | 3.5 m/s (9.5) |
+| heavy vehicle (> 8 m) involved | 0 |
+| events by location | US-101 64 · I-80 37 |
+
+Reproduce with `python3 experiments/profile_collision_labels.py`; the run behind these tables
+is `experiments/runs/collision_profile.out`.
+
+What follows from this:
+
+- **The effective sample size is ~101, not 977.** Positives within an event are strongly
+  correlated, so AUC confidence intervals are far wider than a 977-positive count suggests.
+  ROC-AUC differences of order 0.01 between models should be treated as within noise. The
+  scoring run keeps only aggregates, so an event-clustered bootstrap is not yet computed.
+- **A large share of positives are data artefacts.** NGSIM contains no crashes, yet 36 of the
+  101 events at 2 m have the two vehicle boxes overlapping. These are tracking errors, which
+  are documented for NGSIM (Montanino & Punzo 2015; Coifman & Li 2017). At 1 m it is every
+  event: 13 events, ~0.1–0.2 m apart at crawling speed (median 2.9 m/s), consistent with one
+  physical vehicle tracked twice. **The 1 m sweep point should not be used.**
+- **The 2 m label is a side-by-side label, not a rear-end label.** Positives sit almost exactly
+  abreast (0.16 m longitudinal) with the lateral gap at or below one vehicle width. Rear-end
+  conflicts, the scenario TTC/DRAC/PSD are built for, are nearly absent; this is one reason the
+  longitudinal surrogates rank low here.
+- **3 m is the cleaner, milder label**: 914 events, only 6 % with overlapping boxes, mostly
+  adjacent-lane passing (median lateral 2.75 m). It is the better-supported operating point for
+  ranking, though it measures close proximity rather than conflict.
+- **About a fifth of 2 m positives are already within 2 m when prediction starts**, so they are
+  near-trivial from the current state. The horizon-stratified view (§4) separates them out.
+
 ### 2.2 The four neighbour-future sources
 
 "Risk from predicted trajectories" has no single meaning, and the contrast between readings is
@@ -287,6 +371,16 @@ chance of ranking them.
    established route to that, is not attempted.
 9. **The comparison literature's own numbers are not commensurable with these.** Every figure
    cited in the methodology doc was measured under a different protocol.
+10. **~101 independent events, not 977 positives** (§2.1b). Overlapping windows repeat each
+    encounter ~9 times, so per-pair AUCs overstate their own precision. Small cross-model AUC
+    gaps are not evidence of a ranking.
+11. **Some positives are tracking artefacts, not near-misses.** 36 of 101 events at 2 m, and
+    all 13 at 1 m, have physically overlapping vehicle boxes. NGSIM's trajectory errors are
+    documented in M. Montanino and V. Punzo, "Trajectory data reconstruction and
+    simulation-based validation against macroscopic traffic patterns", *Transportation
+    Research Part B* 80 (2015), and B. Coifman and L. Li, "A critical evaluation of the Next
+    Generation Simulation (NGSIM) vehicle trajectory dataset", *Transportation Research Part B*
+    105 (2017). A measure can score well partly by detecting the artefact.
 
 ---
 
