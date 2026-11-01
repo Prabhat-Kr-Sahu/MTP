@@ -24,6 +24,16 @@ correlation* with driving performance, and the dynamics gap accounted for 77 % o
 So the question this document answers is not "which model predicts trajectories best" — that is
 already a near-tie — but **"which model's predictions support a better collision-risk judgement"**.
 
+**Short answer (§5).** When risk is computed with constant-velocity neighbours, the ten models
+are indistinguishable (ROC-AUC spread ≤ 0.022). When each model also predicts the neighbours,
+they separate sharply (spread up to 0.28), with an ordering unrelated to RMSE (Spearman ≈ 0):
+inatran and cognitive lead and physics_informed trails on every headline measure, with
+dacr_amtp third on five of six.
+Model-predicted neighbours are nonetheless *worse* than constant velocity for 56 of 60
+model × measure cases. No probability output is calibrated. The labels behind all of this are
+~100 independent events, a third with physically overlapping vehicles (§2.1b), so the ranking is
+a strong signal, not a settled result.
+
 ### The models
 
 The ten best by `rmse_avg`, read from the committed comparison table rather than hard-coded:
@@ -347,8 +357,203 @@ chance of ranking them.
 
 ## 5. Results
 
-*Pending the DSLab scoring run; this section will be filled from
-`experiments/comparison_risk.csv` and `comparison_risk_stratified.csv`.*
+Full NGSIM test split, all 10 models, all four neighbour sources, all 30 measures. Every table
+below is printed by `python experiments/summarise_risk.py` from the committed
+`experiments/results/risk/*.json`. Flat and stratified long tables are in
+`experiments/comparison_risk.csv` and `experiments/comparison_risk_stratified.csv`.
+The scoring run took 64.5 min (`cv` + `oracle`) plus 97.4 min (`cv_scene` + `pred`) on DSLab.
+
+Two pair sets, as §2.2 explains. `cv`/`oracle` use the global 15 nearest: 1,814,838 pairs,
+977 positives at 2 m, base rate 0.054 %. `cv_scene`/`pred` use the scene's own risk-selected
+neighbours: 440,276 pairs, 912 positives, base rate 0.21 %. **Compare models within a
+variant, never ROC/PR values across the two pair sets.**
+
+### 5.1 Headline findings
+
+1. **Model-predicted neighbour futures are worse for risk than constant velocity.** On the
+   matched pair set, `pred` beats `cv_scene` in **4 of 60** (model × headline measure) cases,
+   and those 4 are within noise (+0.008 to +0.015, inatran and cognitive on the probability
+   measures). Averaged over models, swapping CV neighbours for predicted ones costs up to
+   0.18 ROC-AUC, on every measure except `dce` and `pret` (table 5.2, last column).
+2. **The target's predicted trajectory does not separate the models.** With CV neighbours
+   (`cv`, `cv_scene`), the ROC-AUC spread across all 10 models is **0.003–0.022** on every
+   headline measure. All of the between-model separation appears only once the model also
+   predicts the neighbours (`pred`: spread 0.11–0.28).
+3. **Under `pred` the ranking is consistent, and it is not the RMSE ranking.** All six
+   headline measures put inatran 1st, cognitive 2nd and physics_informed 10th; dacr_amtp is
+   3rd on five of the six (inatran and dacr_amtp are **LOOSE** reimplementations). Spearman correlation between risk rank and RMSE rank is
+   **−0.25 to +0.07**, i.e. none. The RMSE leader (miat) is 4th–6th.
+4. **Which measure wins depends on the label.** At 2 m, probability measures lead under
+   `pred` (`p_coll_gauss` 0.88). At 3 m, the time-scale measures (`ttc`, `tet`, `tit`, `pet`,
+   `ttc_true`) **collapse to chance** (0.41–0.55 on the model variants; even the oracle reaches
+   only 0.550 for `ttc`/`tet`/`tit` and 0.639 for `ttc_true`). 3 m positives are mostly
+   adjacent-lane passing with no closing motion (§2.1b), so there is nothing for a
+   time-to-collision measure to detect. Distance/field measures (`s_field_cal`, `min_dist`)
+   are the only ones near the top at both thresholds.
+5. **No probability measure is calibrated.** Every Brier skill score is negative: the
+   forecasts are worse than always predicting the base rate. `p_coll_gauss` predictions of
+   0.1–0.9 all correspond to 1–2 % observed collisions (§5.5).
+
+### 5.2 Measures — mean ROC-AUC over the 10 models, label < 2 m
+
+Sorted by `pred`. `oracle` is model-free (one number). `spread` is max − min over models under
+`pred`. The last column is the predictor's contribution over CV extrapolation on the matched
+pair set.
+
+| measure | oracle | cv | cv_scene | **pred** | spread | pred − cv_scene |
+|---|---|---|---|---|---|---|
+| `p_coll_gauss` | 0.771* | 0.962 | 0.925 | **0.882** | 0.111 | −0.043 |
+| `pet` | 0.997 | 0.925 | 0.924 | **0.878** | 0.061 | −0.046 |
+| `p_coll_mc` | 0.771* | 0.938 | 0.912 | **0.860** | 0.124 | −0.052 |
+| `p_pdrf` | 0.770* | 0.960 | 0.920 | **0.857** | 0.157 | −0.063 |
+| `so_field_cal` | 0.988 | 0.977 | 0.939 | **0.851** | 0.184 | −0.089 |
+| `ttc_true` | 0.998 | 0.946 | 0.947 | **0.841** | 0.281 | −0.107 |
+| `s_field_cal` | 0.998 | 0.981 | 0.952 | **0.839** | 0.177 | −0.113 |
+| `rss_ds` | 0.924 | 0.835 | 0.821 | **0.781** | 0.062 | −0.040 |
+| `min_dist` | 1.000 | 0.969 | 0.946 | **0.779** | 0.227 | −0.167 |
+| `s_field` | 1.000 | 0.968 | 0.945 | **0.770** | 0.230 | −0.175 |
+| `conflict_index` | 0.944 | 0.855 | 0.834 | **0.765** | 0.200 | −0.070 |
+| `thw` | 0.933 | 0.886 | 0.866 | **0.747** | 0.144 | −0.119 |
+| `o_field_cal` | 0.887 | 0.860 | 0.761 | **0.732** | 0.267 | −0.029 |
+| `ttc` / `tet` / `tit` | 1.000 | 0.869 | 0.882 | **0.719** | 0.206 | −0.163 |
+| `rss_margin` | 0.825 | 0.789 | 0.793 | **0.702** | 0.136 | −0.091 |
+| `psd` / `rd` | 0.82 | 0.773 | 0.765 | **0.690** | 0.098 | −0.075 |
+| `o_field` | 0.918 | 0.882 | 0.808 | **0.685** | 0.148 | −0.123 |
+| `dce` | 0.805 | 0.874 | 0.647 | **0.671** | 0.115 | +0.024 |
+| `drac` | 0.885 | 0.832 | 0.793 | **0.666** | 0.256 | −0.127 |
+| `stn` / `a_lat_req` | 0.790 | 0.744 | 0.676 | **0.663** | 0.060 | −0.013 |
+| `btn` | 0.836 | 0.784 | 0.794 | **0.643** | 0.246 | −0.150 |
+| `dst` | 0.799 | 0.764 | 0.773 | **0.641** | 0.246 | −0.131 |
+| `delta_v` | 0.750 | 0.704 | 0.679 | **0.580** | 0.186 | −0.099 |
+| `pret` | 0.545 | 0.509 | 0.507 | **0.515** | 0.038 | +0.008 |
+| `ttce` | 0.627 | 0.480 | 0.598 | **0.501** | 0.161 | −0.097 |
+| `tmd` | 0.432 | 0.424 | 0.529 | **0.466** | 0.161 | −0.063 |
+
+\* The oracle's probability measures use `ORACLE_SIGMA`, which collapses them to a binary
+box-overlap indicator (§2.2). A binary score has a degenerate ROC curve, so these oracle entries
+are not a ceiling. Elsewhere `oracle` ≈ 1.0 is partly circular: the label is a threshold on the
+same true distance `min_dist` reports, so `min_dist`/`s_field` = 1.000 is a pipeline check, not
+a finding.
+
+`pret` is at chance because NGSIM lateral velocity is identically zero (§3). `tmd` and `ttce` are
+at or below chance on every variant, so neither is usable as a ranking score here.
+
+**At 3 m** (base rate 0.54 % on the global set, 1.96 % on the scene set), `pred` ROC-AUC leaders are `s_field_cal`
+0.861, `so_field_cal` 0.848, `min_dist` 0.843, `s_field` 0.834, `thw` 0.774. Every time-scale
+measure falls to 0.41–0.55 on the model variants (oracle `ttc` 0.550, `ttc_true` 0.639).
+
+### 5.3 Models — `pred`, label < 2 m, ROC-AUC (PR-AUC in brackets)
+
+Ordered by RMSE. Base rate 0.21 %, so a PR-AUC of 0.2 is ~100× chance.
+
+| model | RMSE avg | `p_coll_gauss` | `p_coll_mc` | `s_field_cal` | `min_dist` | `ttc_true` | `tet` | rank |
+|---|---|---|---|---|---|---|---|---|
+| miat | 2.072 | 0.903 (0.20) | 0.880 (0.24) | 0.852 (0.22) | 0.774 (0.12) | 0.889 (0.36) | 0.694 (0.30) | 4–6 |
+| traj_mamba | 2.086 | 0.853 (0.18) | 0.829 (0.22) | 0.809 (0.20) | 0.734 (0.04) | 0.797 (0.29) | 0.683 (0.13) | 7–8 |
+| x_track | 2.090 | 0.848 (0.19) | 0.824 (0.24) | 0.824 (0.23) | 0.756 (0.04) | 0.730 (0.32) | 0.699 (0.20) | 5–9 |
+| dacr_amtp **LOOSE** | 2.105 | 0.924 (0.22) | 0.903 (0.27) | 0.883 (0.25) | 0.835 (0.39) | 0.901 (0.41) | 0.768 (0.49) | **3–4** |
+| stdan | 2.114 | 0.869 (0.19) | 0.843 (0.23) | 0.812 (0.21) | 0.736 (0.12) | 0.888 (0.34) | 0.694 (0.26) | 6–7 |
+| mfp | 2.114 | 0.850 (0.18) | 0.824 (0.22) | 0.791 (0.20) | 0.723 (0.04) | 0.747 (0.29) | 0.675 (0.10) | 8–9 |
+| cognitive | 2.114 | 0.934 (0.22) | 0.919 (0.28) | 0.911 (0.28) | 0.890 (0.22) | 0.930 (0.58) | 0.806 (0.37) | **2** |
+| inatran **LOOSE** | 2.118 | 0.938 (0.23) | 0.921 (0.28) | 0.933 (0.30) | 0.910 (0.47) | 0.943 (0.59) | 0.836 (0.50) | **1** |
+| physics_informed | 2.124 | 0.827 (0.19) | 0.797 (0.21) | 0.757 (0.20) | 0.683 (0.19) | 0.661 (0.26) | 0.630 (0.39) | **10** |
+| mha_lstm | 2.130 | 0.875 (0.21) | 0.858 (0.26) | 0.819 (0.24) | 0.749 (0.34) | 0.920 (0.41) | 0.706 (0.52) | 3–6 |
+
+Spearman(risk rank, RMSE rank) per measure: `p_coll_gauss` −0.07, `p_coll_mc` −0.07,
+`s_field_cal` +0.07, `min_dist` +0.07, `ttc_true` −0.25, `tet` −0.15.
+
+At 3 m the top three are unchanged on `s_field_cal`/`min_dist`: inatran 0.903/0.933,
+cognitive 0.898/0.909, dacr_amtp 0.886/0.860. mha_lstm leads on the probability measures
+(0.789/0.784).
+
+Under `cv`, the same table is flat: `p_coll_gauss` 0.960–0.965, `s_field_cal` 0.980–0.982,
+`min_dist` 0.967–0.971 across all 10 models.
+
+**How much weight the ranking bears.** The gaps are large next to the CV-variant spread, and
+the ordering repeats across six measures. But those measures are computed from the same
+predictions, so their agreement is not independent evidence. The positives are ~100 events,
+not 912 (§2.1b), and no clustered confidence interval has been computed (§6, items 10 and 13). Treat it
+as **a strong signal that neighbour-prediction quality, not target RMSE, decides risk
+accuracy**, not as a final ranking. Two of the top three are LOOSE, so the result speaks to
+those implementations, not the published models.
+
+### 5.4 Horizon-stratified view — `pred`, mean ROC-AUC (spread over models)
+
+Each bucket's positives against all negatives, bucketed by when the true closest approach
+occurs. Positives per bucket: 292 / 176 / 163 / 281.
+
+| measure | collision ≤ 1 s | 1–2 s | 2–3 s | 3–5 s |
+|---|---|---|---|---|
+| `p_coll_gauss` | 0.943 (0.07) | 0.918 (0.11) | 0.873 (0.18) | **0.802** (0.24) |
+| `p_coll_mc` | 0.929 (0.10) | 0.900 (0.15) | 0.847 (0.23) | 0.771 (0.27) |
+| `ttc_true` | 0.895 (0.19) | 0.838 (0.33) | 0.822 (0.34) | 0.796 (0.33) |
+| `s_field_cal` | **0.973** (0.04) | 0.906 (0.15) | 0.807 (0.28) | 0.676 (0.30) |
+| `min_dist` | 0.956 (0.06) | 0.821 (0.27) | 0.717 (0.35) | 0.604 (0.30) |
+| `tet` | 0.857 (0.19) | 0.719 (0.29) | 0.661 (0.26) | 0.610 (0.14) |
+
+- **Every measure is near-trivial for imminent collisions.** On the global set, about a fifth
+  of positives are already within 2 m at the last observed frame (§2.1b).
+- **The probability measures degrade least with horizon** (`p_coll_gauss` 0.94 → 0.80). The
+  deterministic distance/field measures fall to 0.60–0.68 for collisions 3–5 s out, which is
+  where predictive spread matters.
+- **The models separate as the horizon grows**: spread 0.04–0.07 within 1 s, 0.24–0.30 at
+  3–5 s. As STRAP's own Table II showed for STRAP-B/R, the stratified view is where models
+  that look alike on average come apart.
+
+### 5.5 Calibration — probability measures
+
+Brier skill score = 1 − Brier / uncertainty; 0 means no better than always forecasting the
+base rate. Mean over models (range):
+
+| measure | BSS, `cv` | BSS, `pred` | reliability, `pred` | resolution, `pred` |
+|---|---|---|---|---|
+| `p_coll_gauss` | −9.8 | −3.7 (−8.2 … −1.5) | 7.7e-3 | 1.3e-4 |
+| `p_coll_mc` | −45.5 | −25.4 | 5.2e-2 | 3.6e-5 |
+| `p_pdrf` | −2.4e-4 | −1.9e-3 | 4.3e-6 | 0 |
+| `rss_ds` | −62.4 | −44.4 | 9.2e-2 | 1.7e-5 |
+
+Reliability bins, `p_coll_gauss`, miat, `pred`:
+
+| predicted | 0.0–0.1 | 0.1–0.2 | 0.2–0.3 | 0.3–0.4 | 0.4–0.5 | 0.5–0.6 | 0.6–0.7 | 0.7–0.8 | 0.8–0.9 | 0.9–1.0 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| pairs | 420,685 | 8,913 | 3,963 | 1,915 | 1,212 | 871 | 632 | 486 | 362 | 1,237 |
+| observed | 0.10 % | 1.2 % | 1.4 % | 1.6 % | 1.4 % | 1.3 % | 2.1 % | 1.2 % | 1.7 % | **21.7 %** |
+
+The forecasts are informative only as a ranking. Between 0.1 and 0.9 the observed rate is flat
+at 1–2 %, and only the top bin carries signal. `p_pdrf`'s near-zero BSS is not skill: it
+forecasts ≈ 0 everywhere. Recalibration (isotonic or Platt, fitted on validation) is needed
+before any of these can be read as a probability. It is not attempted here.
+
+### 5.6 Earliness — `cv`, mean over models
+
+Recall at the alarm threshold when only the first *k* seconds of the predicted horizon are
+scored.
+
+| measure | ≤ 1 s | ≤ 2 s | ≤ 3 s | ≤ 5 s | mean lead (s) |
+|---|---|---|---|---|---|
+| `so_field_cal` | 0.784 | 0.874 | 0.925 | **0.954** | 0.98 |
+| `ttc_true` | **0.876** | 0.885 | 0.892 | 0.897 | **1.15** |
+| `p_coll_gauss` | 0.497 | 0.704 | 0.854 | 0.909 | 0.68 |
+| `min_dist` | 0.496 | 0.651 | 0.768 | 0.882 | 0.41 |
+| `btn` | 0.671 | 0.704 | 0.735 | 0.780 | 0.90 |
+| `drac` | 0.690 | 0.703 | 0.715 | 0.741 | 0.96 |
+
+`ttc_true` fires earliest: recall is already 0.876 at 1 s, of a final 0.897.
+`so_field_cal` reaches the highest final recall. `p_coll_gauss` and `min_dist` need most of the
+horizon.
+
+### 5.7 What to take from this
+
+- **For ranking trajectory predictors by safety:** use the `pred` variant and the stratified
+  view. RMSE, and risk computed with CV neighbours, are both blind to the differences that
+  matter.
+- **For a deployed risk score:** model-predicted neighbours currently *hurt*. CV neighbours
+  plus the model's target prediction, scored with `s_field_cal` or `p_coll_gauss`, is the
+  strongest configuration measured (ROC-AUC 0.95/0.93 on the matched set). A probability
+  output needs recalibration first.
+- **For the label:** 2 m is dominated by side-by-side encounters, a third of which are
+  tracking artefacts. 3 m is cleaner but suppresses time-scale measures entirely. Any
+  conclusion should be checked at both.
 
 ---
 
@@ -381,6 +586,16 @@ chance of ranking them.
     Research Part B* 80 (2015), and B. Coifman and L. Li, "A critical evaluation of the Next
     Generation Simulation (NGSIM) vehicle trajectory dataset", *Transportation Research Part B*
     105 (2017). A measure can score well partly by detecting the artefact.
+12. **`pred` predicts each neighbour inside the original target's scene.** The neighbour
+    becomes the target of `create_sample(scene, target_idx=j)`, but its context is the vehicle
+    set selected around the *original* target, not its own risk-selected neighbourhood. That is
+    a harder, off-distribution input than the models were trained on. Part of the "predicted
+    neighbours are worse than CV" finding (§5.1) may reflect this context mismatch rather than
+    the predictors themselves. Models that are robust to it rank higher, which is itself a
+    property worth having.
+13. **Per-pair scores are not persisted**, only aggregates. An event-clustered bootstrap of
+    the §5.3 ranking needs a rescoring run that saves them; it is the next step to make the
+    ranking claim defensible.
 
 ---
 
