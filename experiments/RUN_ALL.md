@@ -229,3 +229,38 @@ rsync -av -e 'ssh -p 555' "$DSLAB:~/MTP/experiments/comparison_risk*.csv" MTP/ex
 **Never add `--delete` to the upload rsync.** `experiments/checkpoints` is in
 `rsync-exclude.txt`, which is right for upload but means `--delete` would wipe the only copy
 of all 39 trained models.
+
+## Tuning the best models (`experiments/tune_top.py`)
+
+Optuna TPE over lr, lr decay, batch size, weight decay, epochs (12-30) and dropout
+(only inatran, cognitive and miat use it), 30 trials per model on 25 % of the train
+split, objective min val RMSE, median pruning. Then one full-data retrain with the best
+params into `experiments/checkpoints/<model>_tuned/` and `results/<model>_tuned.json`.
+The baseline checkpoints and JSONs are never touched.
+
+```bash
+python3 experiments/tune_top.py --list                    # 8 models, cheapest first
+python3 experiments/tune_top.py miat --debug --trials 3 --fraction 0.05   # smoke, -> tuning_debug/
+tmux new -s tune 'python3 experiments/tune_top.py --set all 2>&1 | tee -a experiments/runs/tune_top.out'
+python3 experiments/tune_top.py --status                  # any time; read-only
+```
+
+**Resume = rerun the same command.** The study is `tuning/<model>/optuna.db`; any trial
+left RUNNING (kill, reboot) or FAIL with its checkpoint still on disk (Ctrl-C) is
+re-queued with its params and continues from `trial_<n>/last_checkpoint.pt`; the final
+retrain continues from its `last_checkpoint.pt`; a model with `results/<model>_tuned.json`
+is skipped. Run **one process per model** — two processes on the same model would steal
+each other's trials (two GPUs: split the model list between them).
+
+Then score baseline and tuned together into a separate directory, so the committed
+`results/risk/` stays as published:
+
+```bash
+M="dacr_amtp stdan inatran cognitive mha_lstm miat x_track traj_mamba"
+python3 experiments/score_risk.py $M $(for m in $M; do echo ${m}_tuned; done) \
+    --sources cv,oracle,cv_scene,pred --sample-stride 1 --out experiments/results/risk_v2
+```
+
+It writes after each source and skips sources already scored, so rerunning resumes.
+Each `<model>.<source>.npz` holds the per-positive AUC placements and event keys that
+`experiments/compare_tuned.py` (run locally) uses for the event-clustered bootstrap.

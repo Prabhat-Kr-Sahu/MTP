@@ -12,3 +12,10 @@ graphify-out
 authtokens.txt
 t.txt
 *.tar.gz
+# Results flow one way, box -> local: an upload once overwrote fresh results with
+# stale local copies. Never upload these, and never add --delete.
+experiments/results
+experiments/comparison_*
+experiments/tuning
+experiments/tuning_debug
+experiments/figures

@@ -27,10 +27,17 @@ ROOT = next(p for p in [Path(__file__).resolve().parent, *Path(__file__).resolve
             if (p / "src").is_dir())
 sys.path.insert(0, str(ROOT))
 
+import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 import torch  # noqa: E402
 
-from experiments.benchmark import RISK_DIR, fidelities, is_loose  # noqa: E402
+from experiments.benchmark import (  # noqa: E402
+    RESULTS_DIR,
+    RISK_DIR,
+    base_name,
+    fidelities,
+    is_loose,
+)
 from src.config import (  # noqa: E402
     DEBUG_MAX_ROWS,
     DEVICE,
@@ -44,6 +51,7 @@ from src.evaluation.risk_metrics import EARLINESS_METRICS, SCALE_CONSTANTS  # no
 from src.evaluation.risk_scoring import (  # noqa: E402
     NEIGHBOUR_SOURCES,
     build_report,
+    roc_artifacts,
     score_split,
 )
 from src.logger import get_logger  # noqa: E402
@@ -61,10 +69,20 @@ def top_models(n=10):
     the benchmark is rerun.
     """
     frame = pd.read_csv(COMPARISON_CSV)
+    frame = frame[frame["model"].map(base_name) == frame["model"]]   # baselines only
     return frame.sort_values("rmse_avg")["model"].head(n).tolist()
 
 
-def load_notebook_model(name, device=DEVICE, load_weights=True, stats=None):
+def tuned_overrides(name):
+    """Namespace overrides a tuned model was trained with, from its result JSON."""
+    path = RESULTS_DIR / f"{name}.json"
+    if base_name(name) == name or not path.exists():
+        return {}
+    return json.loads(path.read_text(encoding="utf-8")).get("overrides", {})
+
+
+def load_notebook_model(name, device=DEVICE, load_weights=True, stats=None,
+                        overrides=None, checkpoint_dir=None):
     """(model, namespace) by exec'ing a notebook's import, config and model cells.
 
     Cell 10 (the NGSIM load, minutes) is skipped: build_model() needs only
@@ -72,8 +90,17 @@ def load_notebook_model(name, device=DEVICE, load_weights=True, stats=None):
 
     `stats` overrides that read, so the loader can be exercised without a
     trained checkpoint -- the checkpoints live only on the GPU box.
+
+    `overrides` replaces config globals (e.g. DROPOUT) before the model cell
+    runs, which is how a tuning trial changes them. '<model>_tuned' loads
+    notebook <model> from experiments/checkpoints/<model>_tuned with the
+    overrides recorded in results/<model>_tuned.json.
     """
-    path = EXPERIMENTS / f"{name}.ipynb"
+    notebook = base_name(name)
+    if notebook != name:
+        overrides = tuned_overrides(name) if overrides is None else overrides
+        checkpoint_dir = checkpoint_dir or EXPERIMENTS / "checkpoints" / name
+    path = EXPERIMENTS / f"{notebook}.ipynb"
     if not path.exists():
         raise FileNotFoundError(path)
     cells = json.loads(path.read_text(encoding="utf-8"))["cells"]
@@ -88,8 +115,10 @@ def load_notebook_model(name, device=DEVICE, load_weights=True, stats=None):
         exec(compile(source[index], f"{name}:cell{index}", "exec"), namespace)
     namespace["DEBUG"] = False
     namespace["LOCATIONS"] = NGSIM_LOCATIONS
+    namespace.update(overrides or {})
 
-    checkpoint_dir = Path(namespace["CKPT_DIR"])
+    checkpoint_dir = Path(checkpoint_dir or namespace["CKPT_DIR"])
+    namespace["CKPT_DIR"] = checkpoint_dir
     if stats is None:
         stats_path = checkpoint_dir / NORMALIZATION_FILE
         if not stats_path.exists():
@@ -109,36 +138,40 @@ def load_notebook_model(name, device=DEVICE, load_weights=True, stats=None):
     return model.eval().to(device), namespace
 
 
+def _report(scored, oracle, out_path, minutes=None):
+    """build_report plus ROC curves; the bootstrap placements go to out_path (.npz)."""
+    report = build_report(scored, oracle=oracle)
+    curves, arrays = roc_artifacts(scored)
+    report["roc_curves"] = curves
+    np.savez_compressed(out_path, **arrays)
+    if minutes is not None:
+        report["minutes"] = minutes
+    return report
+
+
+def done_sources(path):
+    """Sources already scored in an existing result JSON."""
+    if not path.exists():
+        return set()
+    return set(json.loads(path.read_text(encoding="utf-8")).get("variants", {}))
+
+
 def score_one(name, loader, test_samples, args, oracle=None, oracle_report=None):
-    """Score one model across the requested sources; returns the result dict."""
+    """Score one model across the requested sources; returns the result dict.
+
+    The JSON is rewritten after every source, and sources it already holds are
+    skipped unless --force, so an interrupted run resumes at source granularity.
+    """
+    path = args.out / f"{name}.json"
     model, namespace = load_notebook_model(
         name, device=args.device, load_weights=not args.random_weights,
         stats=args.stats_override,
     )
     norm_stats = namespace["norm_stats"]
-    variants = {}
-    for source in args.sources:
-        if source == "oracle" and oracle_report is not None:
-            # Identical for every model, so reuse it rather than repeating a
-            # full AUC sweep over every pair and measure ten times over.
-            variants[source] = oracle_report
-            continue
-        started = time.time()
-        scored = score_split(
-            model, loader, test_samples, norm_stats, threshold=args.threshold,
-            source=source, batch_size=args.batch_size,
-            sample_stride=1 if source in ("cv", "oracle") else args.sample_stride,
-            device=args.device,
-            prefixes=EARLINESS_METRICS if source == "cv" else (),
-        )
-        variants[source] = build_report(scored, oracle=oracle)
-        variants[source]["minutes"] = round((time.time() - started) / 60, 2)
-        logger.info("%s / %s: %d pairs, %d collisions, %.1f min", name, source,
-                    scored.n_pairs, scored.n_collisions,
-                    variants[source]["minutes"])
-    return {
+    previous = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    result = {
         "name": name,
-        "fidelity": fidelities().get(name, "unknown"),
+        "fidelity": fidelities().get(base_name(name), "unknown"),
         "loose_reimplementation": is_loose(name),
         "threshold": args.threshold,
         "label_criterion": f"true min centre distance < {args.threshold} m",
@@ -147,8 +180,37 @@ def score_one(name, loader, test_samples, args, oracle=None, oracle_report=None)
         "seed": SEED,
         "random_weights": bool(args.random_weights),
         "debug": bool(args.debug),
-        "variants": variants,
+        "variants": previous.get("variants", {}),
     }
+    for source in args.sources:
+        if source in result["variants"] and not args.force:
+            logger.info("%s / %s: already scored, skipping", name, source)
+            continue
+        if source == "oracle" and oracle_report is not None:
+            # Identical for every model, so reuse it rather than repeating a
+            # full AUC sweep over every pair and measure ten times over.
+            result["variants"][source] = oracle_report
+        else:
+            started = time.time()
+            stride = 1 if source in ("cv", "oracle") else args.sample_stride
+            scored = score_split(
+                model, loader, test_samples, norm_stats, threshold=args.threshold,
+                source=source, batch_size=args.batch_size, sample_stride=stride,
+                device=args.device,
+                prefixes=EARLINESS_METRICS if source == "cv" else (),
+            )
+            minutes = round((time.time() - started) / 60, 2)
+            # The oracle is a regression target only on its own pair set (cv);
+            # the scene sources pair each target with different neighbours.
+            same_pairs = oracle is not None and np.array_equal(oracle.pairs, scored.pairs)
+            result["variants"][source] = _report(
+                scored, oracle if same_pairs else None,
+                args.out / f"{name}.{source}.npz", minutes)
+            result["variants"][source]["sample_stride"] = stride
+            logger.info("%s / %s: %d pairs, %d collisions, %.1f min", name, source,
+                        scored.n_pairs, scored.n_collisions, minutes)
+        path.write_text(json.dumps(result, indent=2), encoding="utf-8")
+    return result
 
 
 def main(argv=None):
@@ -197,8 +259,8 @@ def main(argv=None):
         return 0
 
     args.out.mkdir(parents=True, exist_ok=True)
-    pending = [m for m in models
-               if args.force or not (args.out / f"{m}.json").exists()]
+    pending = [m for m in models if args.force
+               or set(args.sources) - done_sources(args.out / f"{m}.json")]
     if not pending:
         print("nothing to do; pass --force to rescore")
         return 0
@@ -225,7 +287,7 @@ def main(argv=None):
             threshold=args.threshold, source="oracle",
             batch_size=args.batch_size, device=args.device,
         )
-        oracle_report = build_report(oracle, oracle=oracle)
+        oracle_report = _report(oracle, oracle, args.out / "_oracle.npz")
         (args.out / "_oracle.json").write_text(
             json.dumps(oracle_report, indent=2), encoding="utf-8"
         )
@@ -236,17 +298,8 @@ def main(argv=None):
     for name in pending:
         started = time.time()
         try:
-            result = score_one(name, loader, test_samples, args, oracle=oracle,
-                               oracle_report=oracle_report)
-            path = args.out / f"{name}.json"
-            if path.exists():
-                # Sources are scored in separate passes, so a later pass adds
-                # its variants to the ones an earlier pass already paid for
-                # rather than discarding them.
-                previous = json.loads(path.read_text(encoding="utf-8"))
-                result["variants"] = {**previous.get("variants", {}),
-                                      **result["variants"]}
-            path.write_text(json.dumps(result, indent=2), encoding="utf-8")
+            score_one(name, loader, test_samples, args, oracle=oracle,
+                      oracle_report=oracle_report)
             status = "ok"
         except Exception as error:                      # keep the batch going
             logger.exception("%s failed", name)

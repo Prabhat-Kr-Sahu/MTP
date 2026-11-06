@@ -6,6 +6,8 @@ import torch.optim as optim
 import json
 import os
 
+from tqdm.auto import tqdm
+
 from src.config import (
     BETA_LOSS, DEVICE, BATCH_SIZE, LEARNING_RATE, NUM_EPOCHS, LR_DECAY,
     WEIGHT_DECAY, CHECKPOINT_DIR, LOG_DIR, SEED,
@@ -32,7 +34,7 @@ def train_one_epoch(model, optimizer, dataloader, device, use_risk_loss=True, be
     # denoising loss); forward() never sees gt_positions, so models opt in here.
     aux_loss = getattr(model, "aux_loss", None)
 
-    for batch_idx, batch in enumerate(dataloader):
+    for batch in tqdm(dataloader, desc="train", leave=False, mininterval=30):
         states, gt_positions, gt_goals, mask, goal_mask, dims = (t.to(device) for t in batch)
 
         # Forward pass
@@ -211,7 +213,8 @@ def fit(
     logger.info(f"Number of training batches: {len(train_dl)}")
     logger.info(f"Number of validation batches: {len(val_dl)}")
 
-    for epoch in range(start_epoch, num_epochs):
+    for epoch in tqdm(range(start_epoch, num_epochs), desc="epochs", initial=start_epoch,
+                      total=num_epochs, mininterval=30):
         train_loss, gl, tl = train_one_epoch(
             model, optimizer, train_dl, DEVICE, use_risk_loss, beta
         )

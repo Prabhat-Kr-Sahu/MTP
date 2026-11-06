@@ -30,6 +30,7 @@ sample from. The scene's own neighbours do.
 """
 import numpy as np
 import torch
+from tqdm.auto import tqdm
 
 from src.config import DEVICE, DT, SEED, TF_STEPS, TH_STEPS
 from src.data.loader import collate_fn, create_sample
@@ -260,7 +261,7 @@ def score_split(model, loader, test_samples, norm_stats, threshold=2.0,
         return n_scored, n_filled + batch_out["n_filled"], batches
 
     pending, batches = [], 0
-    for sample_index in chosen:
+    for sample_index in tqdm(chosen, desc=f"risk {source}", unit="sample", mininterval=30):
         scene = loader.scenes[scene_indices[sample_index]]
         candidates = _candidates(loader, scene, source, n_future)
         if not len(candidates[0]):
@@ -415,6 +416,54 @@ def metric_report(scores, gt, name, higher_is_riskier, default_threshold):
 
 
 LABEL_THRESHOLDS = (1.0, 2.0, 3.0, 5.0)
+HEADLINE_METRICS = ("p_coll_gauss", "p_coll_mc", "s_field_cal", "min_dist", "ttc_true", "tet")
+
+
+def event_keys(pairs):
+    """One key per unordered vehicle pair: windows and target/other roles repeat
+    one encounter, so this is the unit an AUC bootstrap must resample."""
+    pairs = np.asarray(pairs, dtype=np.int64)
+    return pairs.min(axis=1) * 10**8 + pairs.max(axis=1)
+
+
+def roc_artifacts(result, metrics=None, placement_metrics=None, n_points=100):
+    """(curves, arrays) for ROC plots and the event-clustered bootstrap.
+
+    curves: {label: {metric: {"fpr", "tpr"}}}, small enough for the JSON.
+    arrays: flat dict for np.savez -- per label, the positives' pair indices
+    and event keys, and per metric their auc_placements. The pair order is
+    model-independent within a source, so arrays from two models line up.
+    `placement_metrics` maps label -> metric names; default all at 2 m and
+    the headline six at 3 m, which keeps the 3 m file (10x the positives) small.
+    """
+    from src.evaluation import collision as C
+    from src.evaluation.risk_metrics import METRICS
+
+    metrics = METRICS if metrics is None else metrics
+    if placement_metrics is None:
+        placement_metrics = {2.0: tuple(metrics),
+                             3.0: tuple(m for m in HEADLINE_METRICS if m in metrics)}
+    keys = event_keys(result.pairs)
+    curves, arrays = {}, {}
+    for label, names in placement_metrics.items():
+        tag = f"{label:g}"
+        labels = (result.gt_distance < label).astype(int)
+        if labels.all() or not labels.any():
+            continue
+        curves[tag] = {
+            name: _safe(C.roc_points, result.scores[name], labels, higher, n_points)
+            for name, (_, higher, _) in metrics.items()
+        }
+        index = np.flatnonzero(labels)
+        arrays[f"index_{tag}"] = index
+        arrays[f"events_{tag}"] = keys[index]
+        for name in names:
+            try:
+                arrays[f"placement_{tag}__{name}"] = C.auc_placements(
+                    result.scores[name], labels, metrics[name][1]).astype(np.float32)
+            except ValueError:          # no finite score: its AUC is nan too
+                continue
+    return curves, arrays
 
 
 def build_report(result, oracle=None, metrics=None, n_bins=10,

@@ -173,8 +173,10 @@ def test_report_sweeps_the_label_threshold():
 def test_a_second_pass_adds_sources_without_dropping_the_first(tmp_path, monkeypatch):
     """Stage 1 (cv, oracle) and stage 2 (cv_scene, pred) are separate runs over
     the same result files, so the second write must merge rather than clobber
-    -- otherwise the cheap pass silently destroys an hour of GPU time."""
+    -- otherwise the cheap pass silently destroys an hour of GPU time. A rerun
+    must also skip what is already scored: that is the resume after a crash."""
     import json
+    from types import SimpleNamespace
 
     from experiments import score_risk
 
@@ -182,16 +184,20 @@ def test_a_second_pass_adds_sources_without_dropping_the_first(tmp_path, monkeyp
         def get_splits(self):
             return [], [], [object()]
 
+    scored = []
     monkeypatch.setattr(score_risk, "NGSIMDataLoader", lambda **_: _Loader())
+    monkeypatch.setattr(score_risk, "load_notebook_model",
+                        lambda *a, **k: (None, {"norm_stats": None}))
+    monkeypatch.setattr(score_risk, "score_split", lambda *a, source, **k: (
+        scored.append(source) or SimpleNamespace(n_pairs=1, n_collisions=0)))
+    monkeypatch.setattr(score_risk, "_report", lambda *a, **k: {"rows": []})
 
     def run(sources):
-        monkeypatch.setattr(score_risk, "score_one", lambda name, *a, **k: {
-            "name": name,
-            "variants": {s: {"rows": []} for s in sources.split(",")}})
-        score_risk.main(["miat", "--sources", sources, "--out", str(tmp_path),
-                         "--force"])
+        score_risk.main(["miat", "--sources", sources, "--out", str(tmp_path)])
 
     run("cv")
     run("cv_scene")
+    run("cv,cv_scene")
     saved = json.loads((tmp_path / "miat.json").read_text(encoding="utf-8"))
     assert set(saved["variants"]) == {"cv", "cv_scene"}
+    assert scored == ["cv", "cv_scene"]

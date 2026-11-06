@@ -32,3 +32,9 @@ t.txt
 # Generated
 graphify-out/
 *.tar.gz
+
+# Tuning: commit best_params.json / trials.csv, not the study DB or trial scratch
+/experiments/tuning/*/optuna.db
+/experiments/tuning/*/trial_*/
+/experiments/tuning/_data/
+/experiments/tuning_debug/

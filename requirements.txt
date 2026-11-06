@@ -7,3 +7,4 @@ optuna
 pytest
 nbconvert
 ipykernel
+tqdm

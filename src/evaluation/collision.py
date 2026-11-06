@@ -142,6 +142,58 @@ def roc_curve(pred_scores, gt_labels, higher_is_riskier=False):
     )
 
 
+def roc_points(pred_scores, gt_labels, higher_is_riskier=False, n_points=200):
+    """ROC curve resampled onto a fixed FPR grid: {"fpr": [...], "tpr": [...]}.
+
+    The grid is half log-spaced from 1e-5, because at base rates of 0.05-2 %
+    the operating region is low FPR and a linear grid would spend every point
+    where no alarm system lives. tpr is the step-function value at each fpr.
+    """
+    fpr, tpr, _ = roc_curve(pred_scores, gt_labels, higher_is_riskier)
+    grid = np.unique(np.r_[0.0, np.logspace(-5, 0, n_points // 2),
+                           np.linspace(0, 1, n_points - n_points // 2)])
+    at = np.searchsorted(fpr, grid, side="right") - 1
+    return {"fpr": grid.round(6).tolist(), "tpr": tpr[at].round(6).tolist()}
+
+
+def auc_placements(pred_scores, gt_labels, higher_is_riskier=False):
+    """Per positive: the fraction of negatives it out-ranks, ties counted half.
+
+    Their mean is exactly compute_roc_auc. Holding the negatives fixed turns
+    an AUC bootstrap over positives into a mean over these values, which is
+    what makes the event-clustered bootstrap cheap and pairable across models.
+    """
+    scores, labels = _prepare_auc_inputs(pred_scores, gt_labels, higher_is_riskier)
+    negatives = np.sort(scores[labels == 0])
+    if not negatives.size or not labels.any():
+        raise ValueError("placements require both positive and negative labels")
+    positives = scores[labels == 1]
+    below = np.searchsorted(negatives, positives, side="left")
+    tied = np.searchsorted(negatives, positives, side="right") - below
+    return (below + 0.5 * tied) / negatives.size
+
+
+def event_bootstrap(placements, events, n_boot=2000, seed=42, alpha=0.05):
+    """(lo, hi) percentile CI for ROC-AUC resampling whole events, not pairs.
+
+    `placements` is one array (P,) or several stacked (K, P) on the same
+    positives, e.g. baseline and tuned; the same event draw is applied to all,
+    so a CI on their difference is paired. Returns arrays of shape (K, 2).
+    Negatives are held fixed: they number ~1e6, so their sampling variance is
+    negligible next to ~100 positive events.
+    """
+    placements = np.atleast_2d(np.asarray(placements, dtype=float))
+    _, inverse = np.unique(events, return_inverse=True)
+    n_events = inverse.max() + 1
+    sums = np.stack([np.bincount(inverse, weights=p, minlength=n_events)
+                     for p in placements])                      # (K, E)
+    counts = np.bincount(inverse, minlength=n_events)           # (E,)
+    draws = np.random.default_rng(seed).integers(0, n_events, (n_boot, n_events))
+    weight = np.stack([np.bincount(d, minlength=n_events) for d in draws])  # (B, E)
+    boot = (weight @ sums.T) / (weight @ counts)[:, None]       # (B, K)
+    return np.percentile(boot, [100 * alpha / 2, 100 * (1 - alpha / 2)], axis=0).T
+
+
 def recall_at_precision(pred_scores, gt_labels, higher_is_riskier=False,
                         min_precision=0.5):
     """Highest recall whose precision is at least min_precision; 0.0 if unreachable.

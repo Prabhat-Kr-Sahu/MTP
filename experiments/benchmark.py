@@ -35,9 +35,17 @@ def fidelities() -> dict:
         encoding="utf-8").splitlines()) if m}
 
 
+TUNED_SUFFIX = "_tuned"
+
+
+def base_name(name: str) -> str:
+    """Notebook stem behind a result name: '<model>_tuned' -> '<model>'."""
+    return name[: -len(TUNED_SUFFIX)] if name.endswith(TUNED_SUFFIX) else name
+
+
 def is_loose(name: str) -> bool:
     """True for name-only reimplementations, whose results do not represent the paper."""
-    return "LOOSE" in fidelities().get(name, "")
+    return "LOOSE" in fidelities().get(base_name(name), "")
 
 
 def save_result(result: dict, results_dir: Path = RESULTS_DIR) -> Path:
