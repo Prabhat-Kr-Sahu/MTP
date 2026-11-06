@@ -13,7 +13,13 @@ venv/
 /checkpoints/
 /logs/
 /results/
-/experiments/checkpoints/
+/experiments/checkpoints/*
+# tuned models are small (0.5-1 MB): keep their weights + the files score_risk needs
+!/experiments/checkpoints/*_tuned/
+/experiments/checkpoints/*_tuned/*
+!/experiments/checkpoints/*_tuned/best_model.pt
+!/experiments/checkpoints/*_tuned/normalization.json
+!/experiments/checkpoints/*_tuned/intention_clusters.pkl
 
 # IDE
 .vscode/
