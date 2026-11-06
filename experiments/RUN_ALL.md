@@ -250,7 +250,22 @@ left RUNNING (kill, reboot) or FAIL with its checkpoint still on disk (Ctrl-C) i
 re-queued with its params and continues from `trial_<n>/last_checkpoint.pt`; the final
 retrain continues from its `last_checkpoint.pt`; a model with `results/<model>_tuned.json`
 is skipped. Run **one process per model** — two processes on the same model would steal
-each other's trials (two GPUs: split the model list between them).
+each other's trials.
+
+The models are small (78k-254k parameters), so one process leaves the A5000 mostly idle.
+Run several lanes, each its own tmux session with a disjoint model list, and cap CPU
+threads so they do not oversubscribe the 32 hardware threads; each lane prepares its data
+in its own `tuning/_data/<first model>/`:
+
+```bash
+lane() { tmux new -d -s "$1" "OMP_NUM_THREADS=4 /usr/bin/python3 experiments/tune_top.py ${*:2} 2>&1 | tee -a experiments/runs/tune_$1.out"; }
+lane g1 traj_mamba
+lane g2 x_track miat mha_lstm
+lane g3 dacr_amtp stdan inatran cognitive
+```
+
+Risk scoring is CPU-bound (`create_sample`), so the baseline half of the risk_v2 pass below
+can run at the same time as the tuning lanes.
 
 Then score baseline and tuned together into a separate directory, so the committed
 `results/risk/` stays as published:

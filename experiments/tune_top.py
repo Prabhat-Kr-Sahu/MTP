@@ -318,7 +318,9 @@ def load_data(models, args):
     locations = ["us-101"] if args.debug else NGSIM_LOCATIONS
     loader = NGSIMDataLoader(locations=locations,
                              max_rows=DEBUG_MAX_ROWS if args.debug else None)
-    data_dir = tune_root / "_data"
+    # One dir per queue: parallel lanes would otherwise rewrite the same
+    # normalization file while another lane is reading it back.
+    data_dir = tune_root / "_data" / models[0]
     train_s, val_s, centers = prepare_data(loader, save_dir=str(data_dir))
     _, _, test_raw = loader.get_splits()
     norm_stats = load_stats(str(data_dir / NORMALIZATION_FILE))
