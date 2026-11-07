@@ -1,0 +1,11 @@
+{
+  "trial": 10,
+  "val_rmse": 2.0604180872440336,
+  "params": {
+    "learning_rate": 0.0019301407027005491,
+    "lr_decay": 0.7894841577316409,
+    "batch_size": 128,
+    "weight_decay": 4.5824424444417766e-06,
+    "num_epochs": 16
+  }
+}
