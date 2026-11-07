@@ -182,7 +182,7 @@ def headline_mean(risk_dir, name, source, label):
     return parts[0][0], parts[0][1], np.mean([p[2] for p in parts], axis=0)
 
 
-def ranking_table(models, risk_dir, rmse, n_boot):
+def ranking_table(models, risk_dir, n_boot):
     """All 16 entries under pred, ranked by mean headline ROC-AUC with CIs."""
     rows = []
     for label in LABELS:
@@ -193,13 +193,15 @@ def ranking_table(models, risk_dir, rmse, n_boot):
                 if hm is None:
                     continue
                 (lo, hi), = event_bootstrap(hm[2], hm[1], n_boot=n_boot)
-                rm = rmse.set_index("model") if len(rmse) else None
+                # Each entry's own result file, so a baseline has its RMSE even
+                # before its tuned twin exists.
+                result = RESULTS_DIR / f"{name}.json"
                 rows.append({
                     "label_m": label, "entry": name, "model": m, "version": version,
                     "loose": is_loose(m), "headline_roc": hm[2].mean(),
                     "ci_lo": lo, "ci_hi": hi,
-                    "rmse_avg": rm.loc[m, f"rmse_avg_{version}"]
-                    if rm is not None and m in rm.index else np.nan,
+                    "rmse_avg": json.loads(result.read_text())["test"][OVERALL]["rmse_avg"]
+                    if result.exists() else np.nan,
                 })
     frame = pd.DataFrame(rows)
     if len(frame):
@@ -393,7 +395,7 @@ def main(argv=None):
     rmse = rmse_table(models)
     risk = risk_table(models, risk_dir, args.n_boot)
     oracle = oracle_table(risk_dir, args.n_boot)
-    ranking = ranking_table(models, risk_dir, rmse, args.n_boot)
+    ranking = ranking_table(models, risk_dir, args.n_boot)
     gain = pred_gain_table(models, risk_dir, args.n_boot)
     strat = stratified_table(models, risk_dir)
     cal = calibration_table(models, risk_dir)
