@@ -9,6 +9,7 @@ venv/
 # Data, checkpoints, logs (large, generated)
 *.csv
 !experiments/comparison_*.csv
+!experiments/tuning/*/trials.csv
 /data/
 /checkpoints/
 /logs/
