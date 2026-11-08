@@ -191,9 +191,10 @@ ls experiments/checkpoints/*/best_model.pt | wc -l
 nohup /usr/bin/python3 experiments/score_risk.py --top 10 --sources cv,oracle \
     > experiments/runs/score_risk_cv.out 2>&1 &
 
-# stage 2 -- the predictor-contribution pair, on a subsample
+# stage 2 -- the predictor-contribution pair, full split (the committed results are
+# stride 1: n_samples 118,009; add --sample-stride N only for a quick look)
 nohup /usr/bin/python3 experiments/score_risk.py --top 10 --sources cv_scene,pred \
-    --sample-stride 4 > experiments/runs/score_risk_pred.out 2>&1 &
+    > experiments/runs/score_risk_pred.out 2>&1 &
 ```
 
 `--random-weights` skips the checkpoints to smoke-test the data path. It warns loudly and

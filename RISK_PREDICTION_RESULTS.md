@@ -6,6 +6,11 @@ was measured under, and the results.
 
 Family letters (A1–A6) and axis letters (B1–B8) refer to that document.
 
+**Follow-up:** [RISK_TUNING_RESULTS.md](RISK_TUNING_RESULTS.md) tunes seven of these models.
+Tuning improves RMSE by 2–5 % but lowers `pred` risk ROC-AUC for all seven. It also adds
+event-clustered and paired bootstrap CIs, which make the §5.3 ranking statistically
+supported, and it closes caveat 13 below.
+
 ---
 
 ## 1. What was measured, and why this axis
@@ -608,7 +613,15 @@ python3 -m pytest tests -q                     # hard gate
 
 python3 experiments/score_risk.py --list       # selection, with LOOSE flagged
 python3 experiments/score_risk.py --top 10 --sources cv,oracle
-python3 experiments/score_risk.py --top 10 --sources cv_scene,pred --sample-stride 4
+python3 experiments/score_risk.py --top 10 --sources cv_scene,pred
+```
+
+The committed `cv_scene`/`pred` results cover the **full** test split (`n_samples` 118,009 of
+121,130; a stride of 4 would allow at most 30,283), and the stride-1 rescoring in
+[RISK_TUNING_RESULTS.md](RISK_TUNING_RESULTS.md) reproduces every one of their AUCs exactly. An
+earlier version of this command carried `--sample-stride 4`, which is not what produced them.
+
+```bash
 
 python3 -c "from experiments.benchmark import compare_risk; compare_risk()"
 ```

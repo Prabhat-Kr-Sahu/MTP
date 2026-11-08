@@ -317,7 +317,8 @@ def roc_figures(models, risk_dir, out_dir, label_m="2"):
                             linewidth=2, label=version)
                     auc = aucs(payload, label_m, metric)[0]
                     label += f"{auc:.3f} " if label == "" else f"-> {auc:.3f}"
-                ax.plot([1e-5, 1], [1e-5, 1], color=MUTED, linewidth=0.8, linestyle=":")
+                chance = np.logspace(-5, 0, 200)          # TPR = FPR, curved on a log axis
+                ax.plot(chance, chance, color=MUTED, linewidth=0.8, linestyle=":")
                 ax.set_xscale("log")
                 ax.set_xlim(1e-5, 1)
                 ax.set_ylim(0, 1.02)

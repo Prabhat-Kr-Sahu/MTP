@@ -1,0 +1,451 @@
+model,version,bucket,metric,roc,n_positives
+dacr_amtp,baseline,collision in 1s,min_dist,0.9825127912163946,292
+dacr_amtp,baseline,collision in 1s,tet,0.93114594860217,292
+dacr_amtp,baseline,collision in 1s,ttc_true,0.944233378496165,292
+dacr_amtp,baseline,collision in 1s,p_coll_gauss,0.9587165096547401,292
+dacr_amtp,baseline,collision in 1s,p_coll_mc,0.9446558446935689,292
+dacr_amtp,baseline,collision in 1s,s_field_cal,0.9872545105047856,292
+dacr_amtp,baseline,collision in 2s,min_dist,0.9156237960386542,176
+dacr_amtp,baseline,collision in 2s,tet,0.803491802148312,176
+dacr_amtp,baseline,collision in 2s,ttc_true,0.9055297504926543,176
+dacr_amtp,baseline,collision in 2s,p_coll_gauss,0.9671976269831352,176
+dacr_amtp,baseline,collision in 2s,p_coll_mc,0.9544900089571621,176
+dacr_amtp,baseline,collision in 2s,s_field_cal,0.9602804035026663,176
+dacr_amtp,baseline,collision in 3s,min_dist,0.8057565765864692,163
+dacr_amtp,baseline,collision in 3s,tet,0.7203616976641585,163
+dacr_amtp,baseline,collision in 3s,ttc_true,0.896242473015792,163
+dacr_amtp,baseline,collision in 3s,p_coll_gauss,0.9300301291610411,163
+dacr_amtp,baseline,collision in 3s,p_coll_mc,0.9190208875818996,163
+dacr_amtp,baseline,collision in 3s,s_field_cal,0.8829913964317525,163
+dacr_amtp,baseline,collision in 5s,min_dist,0.6471424758550219,281
+dacr_amtp,baseline,collision in 5s,tet,0.6027363485058198,281
+dacr_amtp,baseline,collision in 5s,ttc_true,0.8546361667516758,281
+dacr_amtp,baseline,collision in 5s,p_coll_gauss,0.8578364858087819,281
+dacr_amtp,baseline,collision in 5s,p_coll_mc,0.8186229781961445,281
+dacr_amtp,baseline,collision in 5s,s_field_cal,0.7272718668631374,281
+dacr_amtp,baseline,non-collision,min_dist,,439364
+dacr_amtp,baseline,non-collision,tet,,439364
+dacr_amtp,baseline,non-collision,ttc_true,,439364
+dacr_amtp,baseline,non-collision,p_coll_gauss,,439364
+dacr_amtp,baseline,non-collision,p_coll_mc,,439364
+dacr_amtp,baseline,non-collision,s_field_cal,,439364
+dacr_amtp,tuned,collision in 1s,min_dist,0.9529401379116739,292
+dacr_amtp,tuned,collision in 1s,tet,0.8318691203150058,292
+dacr_amtp,tuned,collision in 1s,ttc_true,0.8445391271043962,292
+dacr_amtp,tuned,collision in 1s,p_coll_gauss,0.943322948251601,292
+dacr_amtp,tuned,collision in 1s,p_coll_mc,0.9455874956802441,292
+dacr_amtp,tuned,collision in 1s,s_field_cal,0.9774054788783738,292
+dacr_amtp,tuned,collision in 2s,min_dist,0.7952460247808609,176
+dacr_amtp,tuned,collision in 2s,tet,0.6529624160770403,176
+dacr_amtp,tuned,collision in 2s,ttc_true,0.7446846593754113,176
+dacr_amtp,tuned,collision in 2s,p_coll_gauss,0.8919333736326309,176
+dacr_amtp,tuned,collision in 2s,p_coll_mc,0.8693530527286962,176
+dacr_amtp,tuned,collision in 2s,s_field_cal,0.8949216548341363,176
+dacr_amtp,tuned,collision in 3s,min_dist,0.6655820281329125,163
+dacr_amtp,tuned,collision in 3s,tet,0.6161228907953565,163
+dacr_amtp,tuned,collision in 3s,ttc_true,0.7544568465193107,163
+dacr_amtp,tuned,collision in 3s,p_coll_gauss,0.8321910287167458,163
+dacr_amtp,tuned,collision in 3s,p_coll_mc,0.7911016302817631,163
+dacr_amtp,tuned,collision in 3s,s_field_cal,0.7618152099719376,163
+dacr_amtp,tuned,collision in 5s,min_dist,0.557261185619939,281
+dacr_amtp,tuned,collision in 5s,tet,0.5814169970887392,281
+dacr_amtp,tuned,collision in 5s,ttc_true,0.7262978246686629,281
+dacr_amtp,tuned,collision in 5s,p_coll_gauss,0.7634485196185065,281
+dacr_amtp,tuned,collision in 5s,p_coll_mc,0.7316080197254388,281
+dacr_amtp,tuned,collision in 5s,s_field_cal,0.6455715542371971,281
+dacr_amtp,tuned,non-collision,min_dist,,439364
+dacr_amtp,tuned,non-collision,tet,,439364
+dacr_amtp,tuned,non-collision,ttc_true,,439364
+dacr_amtp,tuned,non-collision,p_coll_gauss,,439364
+dacr_amtp,tuned,non-collision,p_coll_mc,,439364
+dacr_amtp,tuned,non-collision,s_field_cal,,439364
+stdan,baseline,collision in 1s,min_dist,0.9507344278647853,292
+stdan,baseline,collision in 1s,tet,0.8533361321589001,292
+stdan,baseline,collision in 1s,ttc_true,0.9393753718793778,292
+stdan,baseline,collision in 1s,p_coll_gauss,0.9549566657246658,292
+stdan,baseline,collision in 1s,p_coll_mc,0.9461761578972245,292
+stdan,baseline,collision in 1s,s_field_cal,0.9690214851965974,292
+stdan,baseline,collision in 2s,min_dist,0.7658080965275427,176
+stdan,baseline,collision in 2s,tet,0.6576833218015131,176
+stdan,baseline,collision in 2s,ttc_true,0.9195819515150412,176
+stdan,baseline,collision in 2s,p_coll_gauss,0.911086310139615,176
+stdan,baseline,collision in 2s,p_coll_mc,0.9028593939711202,176
+stdan,baseline,collision in 2s,s_field_cal,0.8941603206308126,176
+stdan,baseline,collision in 3s,min_dist,0.6395934100618278,163
+stdan,baseline,collision in 3s,tet,0.6212550162440601,163
+stdan,baseline,collision in 3s,ttc_true,0.8728701506243017,163
+stdan,baseline,collision in 3s,p_coll_gauss,0.8401214404557887,163
+stdan,baseline,collision in 3s,p_coll_mc,0.7995069057711585,163
+stdan,baseline,collision in 3s,s_field_cal,0.7534042863295484,163
+stdan,baseline,collision in 5s,min_dist,0.5512819346670653,281
+stdan,baseline,collision in 5s,tet,0.5929005444330224,281
+stdan,baseline,collision in 5s,ttc_true,0.8223341173091963,281
+stdan,baseline,collision in 5s,p_coll_gauss,0.7684832882509144,281
+stdan,baseline,collision in 5s,p_coll_mc,0.7220619097076619,281
+stdan,baseline,collision in 5s,s_field_cal,0.6317274409684578,281
+stdan,baseline,non-collision,min_dist,,439364
+stdan,baseline,non-collision,tet,,439364
+stdan,baseline,non-collision,ttc_true,,439364
+stdan,baseline,non-collision,p_coll_gauss,,439364
+stdan,baseline,non-collision,p_coll_mc,,439364
+stdan,baseline,non-collision,s_field_cal,,439364
+stdan,tuned,collision in 1s,min_dist,0.9355765628474434,292
+stdan,tuned,collision in 1s,tet,0.8162837538020399,292
+stdan,tuned,collision in 1s,ttc_true,0.8490696054995059,292
+stdan,tuned,collision in 1s,p_coll_gauss,0.9034037742974185,292
+stdan,tuned,collision in 1s,p_coll_mc,0.8833714872793089,292
+stdan,tuned,collision in 1s,s_field_cal,0.9656508401995263,292
+stdan,tuned,collision in 2s,min_dist,0.7487462378471029,176
+stdan,tuned,collision in 2s,tet,0.6715036341786599,176
+stdan,tuned,collision in 2s,ttc_true,0.7714251452098942,176
+stdan,tuned,collision in 2s,p_coll_gauss,0.8239494331579282,176
+stdan,tuned,collision in 2s,p_coll_mc,0.7936654407900345,176
+stdan,tuned,collision in 2s,s_field_cal,0.8639431410050561,176
+stdan,tuned,collision in 3s,min_dist,0.6662373116232762,163
+stdan,tuned,collision in 3s,tet,0.6456297566314901,163
+stdan,tuned,collision in 3s,ttc_true,0.7672711791494711,163
+stdan,tuned,collision in 3s,p_coll_gauss,0.8037219568854769,163
+stdan,tuned,collision in 3s,p_coll_mc,0.7667714677149341,163
+stdan,tuned,collision in 3s,s_field_cal,0.7715063304275344,163
+stdan,tuned,collision in 5s,min_dist,0.5774441605515782,281
+stdan,tuned,collision in 5s,tet,0.6341486817843236,281
+stdan,tuned,collision in 5s,ttc_true,0.7485830780765248,281
+stdan,tuned,collision in 5s,p_coll_gauss,0.7435236579914396,281
+stdan,tuned,collision in 5s,p_coll_mc,0.6937750501606641,281
+stdan,tuned,collision in 5s,s_field_cal,0.6454016588714564,281
+stdan,tuned,non-collision,min_dist,,439364
+stdan,tuned,non-collision,tet,,439364
+stdan,tuned,non-collision,ttc_true,,439364
+stdan,tuned,non-collision,p_coll_gauss,,439364
+stdan,tuned,non-collision,p_coll_mc,,439364
+stdan,tuned,non-collision,s_field_cal,,439364
+inatran,baseline,collision in 1s,min_dist,0.991427513904594,292
+inatran,baseline,collision in 1s,tet,0.9463075861958874,292
+inatran,baseline,collision in 1s,ttc_true,0.9548586060199344,292
+inatran,baseline,collision in 1s,p_coll_gauss,0.9007178441178925,292
+inatran,baseline,collision in 1s,p_coll_mc,0.8680278969239846,292
+inatran,baseline,collision in 1s,s_field_cal,0.9866630851094478,292
+inatran,baseline,collision in 2s,min_dist,0.9554672996856614,176
+inatran,baseline,collision in 2s,tet,0.8744429641999055,176
+inatran,baseline,collision in 2s,ttc_true,0.9600977725240865,176
+inatran,baseline,collision in 2s,p_coll_gauss,0.9637873515105719,176
+inatran,baseline,collision in 2s,p_coll_mc,0.9643068653574465,176
+inatran,baseline,collision in 2s,s_field_cal,0.9762992385274252,176
+inatran,baseline,collision in 3s,min_dist,0.912706210644801,163
+inatran,baseline,collision in 3s,tet,0.8153478734431694,163
+inatran,baseline,collision in 3s,ttc_true,0.9457343612627355,163
+inatran,baseline,collision in 3s,p_coll_gauss,0.9660872606544552,163
+inatran,baseline,collision in 3s,p_coll_mc,0.9607183735687552,163
+inatran,baseline,collision in 3s,s_field_cal,0.9429271524266281,163
+inatran,baseline,collision in 5s,min_dist,0.7955347645663559,281
+inatran,baseline,collision in 5s,tet,0.7093769654947052,281
+inatran,baseline,collision in 5s,ttc_true,0.9173977811538069,281
+inatran,baseline,collision in 5s,p_coll_gauss,0.9433578869955702,281
+inatran,baseline,collision in 5s,p_coll_mc,0.9272744077406485,281
+inatran,baseline,collision in 5s,s_field_cal,0.8456309226461634,281
+inatran,baseline,non-collision,min_dist,,439364
+inatran,baseline,non-collision,tet,,439364
+inatran,baseline,non-collision,ttc_true,,439364
+inatran,baseline,non-collision,p_coll_gauss,,439364
+inatran,baseline,non-collision,p_coll_mc,,439364
+inatran,baseline,non-collision,s_field_cal,,439364
+inatran,tuned,collision in 1s,min_dist,0.9957143298538748,292
+inatran,tuned,collision in 1s,tet,0.9395229310598769,292
+inatran,tuned,collision in 1s,ttc_true,0.9483240204739278,292
+inatran,tuned,collision in 1s,p_coll_gauss,0.872919778782357,292
+inatran,tuned,collision in 1s,p_coll_mc,0.844297335357596,292
+inatran,tuned,collision in 1s,s_field_cal,0.9886811172762423,292
+inatran,tuned,collision in 2s,min_dist,0.9593336514929431,176
+inatran,tuned,collision in 2s,tet,0.8261799622967413,176
+inatran,tuned,collision in 2s,ttc_true,0.9240979962979546,176
+inatran,tuned,collision in 2s,p_coll_gauss,0.9300041056245764,176
+inatran,tuned,collision in 2s,p_coll_mc,0.9272108571087464,176
+inatran,tuned,collision in 2s,s_field_cal,0.976274751945167,176
+inatran,tuned,collision in 3s,min_dist,0.8979841637239953,163
+inatran,tuned,collision in 3s,tet,0.7479523036728549,163
+inatran,tuned,collision in 3s,ttc_true,0.9315530918282718,163
+inatran,tuned,collision in 3s,p_coll_gauss,0.9449454839435228,163
+inatran,tuned,collision in 3s,p_coll_mc,0.9380888147133813,163
+inatran,tuned,collision in 3s,s_field_cal,0.9313927582887099,163
+inatran,tuned,collision in 5s,min_dist,0.7829477781876949,281
+inatran,tuned,collision in 5s,tet,0.6987685143465704,281
+inatran,tuned,collision in 5s,ttc_true,0.9026415114879253,281
+inatran,tuned,collision in 5s,p_coll_gauss,0.9130683712960574,281
+inatran,tuned,collision in 5s,p_coll_mc,0.9019494119306259,281
+inatran,tuned,collision in 5s,s_field_cal,0.8257565140825848,281
+inatran,tuned,non-collision,min_dist,,439364
+inatran,tuned,non-collision,tet,,439364
+inatran,tuned,non-collision,ttc_true,,439364
+inatran,tuned,non-collision,p_coll_gauss,,439364
+inatran,tuned,non-collision,p_coll_mc,,439364
+inatran,tuned,non-collision,s_field_cal,,439364
+cognitive,baseline,collision in 1s,min_dist,0.9870394697541016,292
+cognitive,baseline,collision in 1s,tet,0.9250851799419161,292
+cognitive,baseline,collision in 1s,ttc_true,0.9578218829196823,292
+cognitive,baseline,collision in 1s,p_coll_gauss,0.9292036641568953,292
+cognitive,baseline,collision in 1s,p_coll_mc,0.9032960649035287,292
+cognitive,baseline,collision in 1s,s_field_cal,0.984769399866033,292
+cognitive,baseline,collision in 2s,min_dist,0.9544767860734235,176
+cognitive,baseline,collision in 2s,tet,0.8624258328774402,176
+cognitive,baseline,collision in 2s,ttc_true,0.9372597573372585,176
+cognitive,baseline,collision in 2s,p_coll_gauss,0.9617943234683853,176
+cognitive,baseline,collision in 2s,p_coll_mc,0.9554988341619415,176
+cognitive,baseline,collision in 2s,s_field_cal,0.9573478135958505,176
+cognitive,baseline,collision in 3s,min_dist,0.8926177690865262,163
+cognitive,baseline,collision in 3s,tet,0.7808901676226591,163
+cognitive,baseline,collision in 3s,ttc_true,0.9322559412844545,163
+cognitive,baseline,collision in 3s,p_coll_gauss,0.9542273751188486,163
+cognitive,baseline,collision in 3s,p_coll_mc,0.941125670887473,163
+cognitive,baseline,collision in 3s,s_field_cal,0.9232654291761271,163
+cognitive,baseline,collision in 5s,min_dist,0.7480520168573656,281
+cognitive,baseline,collision in 5s,tet,0.662452911149053,281
+cognitive,baseline,collision in 5s,ttc_true,0.8943923100621568,281
+cognitive,baseline,collision in 5s,p_coll_gauss,0.9095681323061569,281
+cognitive,baseline,collision in 5s,p_coll_mc,0.9004196246654943,281
+cognitive,baseline,collision in 5s,s_field_cal,0.7987682883647962,281
+cognitive,baseline,non-collision,min_dist,,439364
+cognitive,baseline,non-collision,tet,,439364
+cognitive,baseline,non-collision,ttc_true,,439364
+cognitive,baseline,non-collision,p_coll_gauss,,439364
+cognitive,baseline,non-collision,p_coll_mc,,439364
+cognitive,baseline,non-collision,s_field_cal,,439364
+cognitive,tuned,collision in 1s,min_dist,0.982308713541479,292
+cognitive,tuned,collision in 1s,tet,0.9226376820455171,292
+cognitive,tuned,collision in 1s,ttc_true,0.9591955800869326,292
+cognitive,tuned,collision in 1s,p_coll_gauss,0.9537487982317654,292
+cognitive,tuned,collision in 1s,p_coll_mc,0.9458961337390173,292
+cognitive,tuned,collision in 1s,s_field_cal,0.9895495503276031,292
+cognitive,tuned,collision in 2s,min_dist,0.9184053088410438,176
+cognitive,tuned,collision in 2s,tet,0.792328035006799,176
+cognitive,tuned,collision in 2s,ttc_true,0.9426335890162723,176
+cognitive,tuned,collision in 2s,p_coll_gauss,0.9496045575381274,176
+cognitive,tuned,collision in 2s,p_coll_mc,0.9467049310842698,176
+cognitive,tuned,collision in 2s,s_field_cal,0.9455469297666628,176
+cognitive,tuned,collision in 3s,min_dist,0.8237040120960119,163
+cognitive,tuned,collision in 3s,tet,0.711347650421415,163
+cognitive,tuned,collision in 3s,ttc_true,0.9393191904885606,163
+cognitive,tuned,collision in 3s,p_coll_gauss,0.9223832910068614,163
+cognitive,tuned,collision in 3s,p_coll_mc,0.9131167804014313,163
+cognitive,tuned,collision in 3s,s_field_cal,0.8861704268797235,163
+cognitive,tuned,collision in 5s,min_dist,0.6752737967636883,281
+cognitive,tuned,collision in 5s,tet,0.6278023076448808,281
+cognitive,tuned,collision in 5s,ttc_true,0.930753749491217,281
+cognitive,tuned,collision in 5s,p_coll_gauss,0.8556846168876714,281
+cognitive,tuned,collision in 5s,p_coll_mc,0.8514611552233654,281
+cognitive,tuned,collision in 5s,s_field_cal,0.7599049310065494,281
+cognitive,tuned,non-collision,min_dist,,439364
+cognitive,tuned,non-collision,tet,,439364
+cognitive,tuned,non-collision,ttc_true,,439364
+cognitive,tuned,non-collision,p_coll_gauss,,439364
+cognitive,tuned,non-collision,p_coll_mc,,439364
+cognitive,tuned,non-collision,s_field_cal,,439364
+mha_lstm,baseline,collision in 1s,min_dist,0.9544885038061866,292
+mha_lstm,baseline,collision in 1s,tet,0.8765219461680165,292
+mha_lstm,baseline,collision in 1s,ttc_true,0.9687858277836968,292
+mha_lstm,baseline,collision in 1s,p_coll_gauss,0.9696783071121607,292
+mha_lstm,baseline,collision in 1s,p_coll_mc,0.9670901950054082,292
+mha_lstm,baseline,collision in 1s,s_field_cal,0.9776737293245666,292
+mha_lstm,baseline,collision in 2s,min_dist,0.8014845037372201,176
+mha_lstm,baseline,collision in 2s,tet,0.6957322247198636,176
+mha_lstm,baseline,collision in 2s,ttc_true,0.9346539440066675,176
+mha_lstm,baseline,collision in 2s,p_coll_gauss,0.9235631904608397,176
+mha_lstm,baseline,collision in 2s,p_coll_mc,0.9045904989940005,176
+mha_lstm,baseline,collision in 2s,s_field_cal,0.9017280905933452,176
+mha_lstm,baseline,collision in 3s,min_dist,0.6682167832890409,163
+mha_lstm,baseline,collision in 3s,tet,0.6131911572907699,163
+mha_lstm,baseline,collision in 3s,ttc_true,0.9072121914872714,163
+mha_lstm,baseline,collision in 3s,p_coll_gauss,0.8555080634400545,163
+mha_lstm,baseline,collision in 3s,p_coll_mc,0.8325693153343849,163
+mha_lstm,baseline,collision in 3s,s_field_cal,0.785127532083045,163
+mha_lstm,baseline,collision in 5s,min_dist,0.5490450917390427,281
+mha_lstm,baseline,collision in 5s,tet,0.5886611141999787,281
+mha_lstm,baseline,collision in 5s,ttc_true,0.8680397451560604,281
+mha_lstm,baseline,collision in 5s,p_coll_gauss,0.7577313467758848,281
+mha_lstm,baseline,collision in 5s,p_coll_mc,0.7311092317815194,281
+mha_lstm,baseline,collision in 5s,s_field_cal,0.6210146251192398,281
+mha_lstm,baseline,non-collision,min_dist,,439364
+mha_lstm,baseline,non-collision,tet,,439364
+mha_lstm,baseline,non-collision,ttc_true,,439364
+mha_lstm,baseline,non-collision,p_coll_gauss,,439364
+mha_lstm,baseline,non-collision,p_coll_mc,,439364
+mha_lstm,baseline,non-collision,s_field_cal,,439364
+mha_lstm,tuned,collision in 1s,min_dist,0.9138635852595401,292
+mha_lstm,tuned,collision in 1s,tet,0.809254551535451,292
+mha_lstm,tuned,collision in 1s,ttc_true,0.8425291974027713,292
+mha_lstm,tuned,collision in 1s,p_coll_gauss,0.9059866640360481,292
+mha_lstm,tuned,collision in 1s,p_coll_mc,0.8936647163901794,292
+mha_lstm,tuned,collision in 1s,s_field_cal,0.9362771201473912,292
+mha_lstm,tuned,collision in 2s,min_dist,0.7589797476372873,176
+mha_lstm,tuned,collision in 2s,tet,0.7045951324993731,176
+mha_lstm,tuned,collision in 2s,ttc_true,0.8016394862801686,176
+mha_lstm,tuned,collision in 2s,p_coll_gauss,0.8515880017376356,176
+mha_lstm,tuned,collision in 2s,p_coll_mc,0.8114114689331935,176
+mha_lstm,tuned,collision in 2s,s_field_cal,0.8274691320346518,176
+mha_lstm,tuned,collision in 3s,min_dist,0.6693507355277565,163
+mha_lstm,tuned,collision in 3s,tet,0.6627707071063064,163
+mha_lstm,tuned,collision in 3s,ttc_true,0.7727452726844486,163
+mha_lstm,tuned,collision in 3s,p_coll_gauss,0.7875462331692721,163
+mha_lstm,tuned,collision in 3s,p_coll_mc,0.7480415430938295,163
+mha_lstm,tuned,collision in 3s,s_field_cal,0.7244961107474759,163
+mha_lstm,tuned,collision in 5s,min_dist,0.5678503554199226,281
+mha_lstm,tuned,collision in 5s,tet,0.6127358395203472,281
+mha_lstm,tuned,collision in 5s,ttc_true,0.7928607562513281,281
+mha_lstm,tuned,collision in 5s,p_coll_gauss,0.7330229531712954,281
+mha_lstm,tuned,collision in 5s,p_coll_mc,0.7108313971528111,281
+mha_lstm,tuned,collision in 5s,s_field_cal,0.6302301132717849,281
+mha_lstm,tuned,non-collision,min_dist,,439364
+mha_lstm,tuned,non-collision,tet,,439364
+mha_lstm,tuned,non-collision,ttc_true,,439364
+mha_lstm,tuned,non-collision,p_coll_gauss,,439364
+mha_lstm,tuned,non-collision,p_coll_mc,,439364
+mha_lstm,tuned,non-collision,s_field_cal,,439364
+miat,baseline,collision in 1s,min_dist,0.9559826584017521,292
+miat,baseline,collision in 1s,tet,0.8464728686907713,292
+miat,baseline,collision in 1s,ttc_true,0.9200846806211669,292
+miat,baseline,collision in 1s,p_coll_gauss,0.9543063444882285,292
+miat,baseline,collision in 1s,p_coll_mc,0.9335365538643466,292
+miat,baseline,collision in 1s,s_field_cal,0.9731490306099988,292
+miat,baseline,collision in 2s,min_dist,0.8403265857011498,176
+miat,baseline,collision in 2s,tet,0.688982417819228,176
+miat,baseline,collision in 2s,ttc_true,0.9052206324472316,176
+miat,baseline,collision in 2s,p_coll_gauss,0.9382879545516619,176
+miat,baseline,collision in 2s,p_coll_mc,0.9286597360047706,176
+miat,baseline,collision in 2s,s_field_cal,0.922041886371292,176
+miat,baseline,collision in 3s,min_dist,0.7057240937723535,163
+miat,baseline,collision in 3s,tet,0.6213001386331821,163
+miat,baseline,collision in 3s,ttc_true,0.8719954618731381,163
+miat,baseline,collision in 3s,p_coll_gauss,0.8982728618382746,163
+miat,baseline,collision in 3s,p_coll_mc,0.8834130600265873,163
+miat,baseline,collision in 3s,s_field_cal,0.8334727964006869,163
+miat,baseline,collision in 5s,min_dist,0.58257414121823,281
+miat,baseline,collision in 5s,tet,0.580496190206478,281
+miat,baseline,collision in 5s,ttc_true,0.8576888808316622,281
+miat,baseline,collision in 5s,p_coll_gauss,0.8300535534686323,281
+miat,baseline,collision in 5s,p_coll_mc,0.7927707239785389,281
+miat,baseline,collision in 5s,s_field_cal,0.6944275543092521,281
+miat,baseline,non-collision,min_dist,,439364
+miat,baseline,non-collision,tet,,439364
+miat,baseline,non-collision,ttc_true,,439364
+miat,baseline,non-collision,p_coll_gauss,,439364
+miat,baseline,non-collision,p_coll_mc,,439364
+miat,baseline,non-collision,s_field_cal,,439364
+miat,tuned,collision in 1s,min_dist,0.9511663644760241,292
+miat,tuned,collision in 1s,tet,0.8326126296441194,292
+miat,tuned,collision in 1s,ttc_true,0.9074559734101334,292
+miat,tuned,collision in 1s,p_coll_gauss,0.957390051535264,292
+miat,tuned,collision in 1s,p_coll_mc,0.953378964931003,292
+miat,tuned,collision in 1s,s_field_cal,0.9722020165075471,292
+miat,tuned,collision in 2s,min_dist,0.8168828460518551,176
+miat,tuned,collision in 2s,tet,0.6916517850492158,176
+miat,tuned,collision in 2s,ttc_true,0.8667680662482381,176
+miat,tuned,collision in 2s,p_coll_gauss,0.9145521023260068,176
+miat,tuned,collision in 2s,p_coll_mc,0.8961675349844528,176
+miat,tuned,collision in 2s,s_field_cal,0.910939604022674,176
+miat,tuned,collision in 3s,min_dist,0.6913545781708005,163
+miat,tuned,collision in 3s,tet,0.6303410023847633,163
+miat,tuned,collision in 3s,ttc_true,0.792398659847589,163
+miat,tuned,collision in 3s,p_coll_gauss,0.842909673173432,163
+miat,tuned,collision in 3s,p_coll_mc,0.8061642489593016,163
+miat,tuned,collision in 3s,s_field_cal,0.8031466132613438,163
+miat,tuned,collision in 5s,min_dist,0.5922701767786572,281
+miat,tuned,collision in 5s,tet,0.6051819815837975,281
+miat,tuned,collision in 5s,ttc_true,0.7814179787730055,281
+miat,tuned,collision in 5s,p_coll_gauss,0.7862607074457447,281
+miat,tuned,collision in 5s,p_coll_mc,0.7450740509065173,281
+miat,tuned,collision in 5s,s_field_cal,0.6766032418713546,281
+miat,tuned,non-collision,min_dist,,439364
+miat,tuned,non-collision,tet,,439364
+miat,tuned,non-collision,ttc_true,,439364
+miat,tuned,non-collision,p_coll_gauss,,439364
+miat,tuned,non-collision,p_coll_mc,,439364
+miat,tuned,non-collision,s_field_cal,,439364
+x_track,baseline,collision in 1s,min_dist,0.9452340738661724,292
+x_track,baseline,collision in 1s,tet,0.8133984538734881,292
+x_track,baseline,collision in 1s,ttc_true,0.8199055518356358,292
+x_track,baseline,collision in 1s,p_coll_gauss,0.9499608938162547,292
+x_track,baseline,collision in 1s,p_coll_mc,0.9485182263141754,292
+x_track,baseline,collision in 1s,s_field_cal,0.9664379017404111,292
+x_track,baseline,collision in 2s,min_dist,0.7833121879270118,176
+x_track,baseline,collision in 2s,tet,0.6882855427493956,176
+x_track,baseline,collision in 2s,ttc_true,0.695335176114069,176
+x_track,baseline,collision in 2s,p_coll_gauss,0.8897406638810975,176
+x_track,baseline,collision in 2s,p_coll_mc,0.8611261947538218,176
+x_track,baseline,collision in 2s,s_field_cal,0.8957040680599478,176
+x_track,baseline,collision in 3s,min_dist,0.6733371795695987,163
+x_track,baseline,collision in 3s,tet,0.6452891639298142,163
+x_track,baseline,collision in 3s,ttc_true,0.6908422858070977,163
+x_track,baseline,collision in 3s,p_coll_gauss,0.8220301830035082,163
+x_track,baseline,collision in 3s,p_coll_mc,0.7708220312093057,163
+x_track,baseline,collision in 3s,s_field_cal,0.7749484782325908,163
+x_track,baseline,collision in 5s,min_dist,0.5900424419690954,281
+x_track,baseline,collision in 5s,tet,0.6195991570928422,281
+x_track,baseline,collision in 5s,ttc_true,0.6816274322888137,281
+x_track,baseline,collision in 5s,p_coll_gauss,0.7295480298098957,281
+x_track,baseline,collision in 5s,p_coll_mc,0.7012346842270003,281
+x_track,baseline,collision in 5s,s_field_cal,0.6608556128413503,281
+x_track,baseline,non-collision,min_dist,,439364
+x_track,baseline,non-collision,tet,,439364
+x_track,baseline,non-collision,ttc_true,,439364
+x_track,baseline,non-collision,p_coll_gauss,,439364
+x_track,baseline,non-collision,p_coll_mc,,439364
+x_track,baseline,non-collision,s_field_cal,,439364
+x_track,tuned,collision in 1s,min_dist,0.9220677618944345,292
+x_track,tuned,collision in 1s,tet,0.7954945546757312,292
+x_track,tuned,collision in 1s,ttc_true,0.7815619507549705,292
+x_track,tuned,collision in 1s,p_coll_gauss,0.894153869110681,292
+x_track,tuned,collision in 1s,p_coll_mc,0.891127830258507,292
+x_track,tuned,collision in 1s,s_field_cal,0.9521267579738234,292
+x_track,tuned,collision in 2s,min_dist,0.6921564077952346,176
+x_track,tuned,collision in 2s,tet,0.6183622028866519,176
+x_track,tuned,collision in 2s,ttc_true,0.6159658865893759,176
+x_track,tuned,collision in 2s,p_coll_gauss,0.7760147855246965,176
+x_track,tuned,collision in 2s,p_coll_mc,0.740202638462538,176
+x_track,tuned,collision in 2s,s_field_cal,0.8307051240801787,176
+x_track,tuned,collision in 3s,min_dist,0.5907300586128873,163
+x_track,tuned,collision in 3s,tet,0.6003315347119426,163
+x_track,tuned,collision in 3s,ttc_true,0.6423648309717956,163
+x_track,tuned,collision in 3s,p_coll_gauss,0.7436542826572017,163
+x_track,tuned,collision in 3s,p_coll_mc,0.6917480777987903,163
+x_track,tuned,collision in 3s,s_field_cal,0.6841028244786399,163
+x_track,tuned,collision in 5s,min_dist,0.5224572830459142,281
+x_track,tuned,collision in 5s,tet,0.5850781934197282,281
+x_track,tuned,collision in 5s,ttc_true,0.6248671567355479,281
+x_track,tuned,collision in 5s,p_coll_gauss,0.6819712080752376,281
+x_track,tuned,collision in 5s,p_coll_mc,0.6651689893327207,281
+x_track,tuned,collision in 5s,s_field_cal,0.5868675438366573,281
+x_track,tuned,non-collision,min_dist,,439364
+x_track,tuned,non-collision,tet,,439364
+x_track,tuned,non-collision,ttc_true,,439364
+x_track,tuned,non-collision,p_coll_gauss,,439364
+x_track,tuned,non-collision,p_coll_mc,,439364
+x_track,tuned,non-collision,s_field_cal,,439364
+traj_mamba,baseline,collision in 1s,min_dist,0.9312707865840449,292
+traj_mamba,baseline,collision in 1s,tet,0.8138581041113849,292
+traj_mamba,baseline,collision in 1s,ttc_true,0.8361042270252905,292
+traj_mamba,baseline,collision in 1s,p_coll_gauss,0.9119757030804052,292
+traj_mamba,baseline,collision in 1s,p_coll_mc,0.894767349268114,292
+traj_mamba,baseline,collision in 1s,s_field_cal,0.9519261294002427,292
+traj_mamba,baseline,collision in 2s,min_dist,0.7679310321282581,176
+traj_mamba,baseline,collision in 2s,tet,0.6853301474093545,176
+traj_mamba,baseline,collision in 2s,ttc_true,0.7864209169907577,176
+traj_mamba,baseline,collision in 2s,p_coll_gauss,0.8688994787196535,176
+traj_mamba,baseline,collision in 2s,p_coll_mc,0.8433997519968947,176
+traj_mamba,baseline,collision in 2s,s_field_cal,0.8636319926488785,176
+traj_mamba,baseline,collision in 3s,min_dist,0.6724780459295234,163
+traj_mamba,baseline,collision in 3s,tet,0.6208359707671149,163
+traj_mamba,baseline,collision in 3s,ttc_true,0.7940605363592204,163
+traj_mamba,baseline,collision in 3s,p_coll_gauss,0.8461248685565187,163
+traj_mamba,baseline,collision in 3s,p_coll_mc,0.8324963291892693,163
+traj_mamba,baseline,collision in 3s,s_field_cal,0.7793193457604056,163
+traj_mamba,baseline,collision in 5s,min_dist,0.5422314699076027,281
+traj_mamba,baseline,collision in 5s,tet,0.5823702999881323,281
+traj_mamba,baseline,collision in 5s,ttc_true,0.7651006691296034,281
+traj_mamba,baseline,collision in 5s,p_coll_gauss,0.7852855515418097,281
+traj_mamba,baseline,collision in 5s,p_coll_mc,0.7505052839074636,281
+traj_mamba,baseline,collision in 5s,s_field_cal,0.6430499621241587,281
+traj_mamba,baseline,non-collision,min_dist,,439364
+traj_mamba,baseline,non-collision,tet,,439364
+traj_mamba,baseline,non-collision,ttc_true,,439364
+traj_mamba,baseline,non-collision,p_coll_gauss,,439364
+traj_mamba,baseline,non-collision,p_coll_mc,,439364
+traj_mamba,baseline,non-collision,s_field_cal,,439364
