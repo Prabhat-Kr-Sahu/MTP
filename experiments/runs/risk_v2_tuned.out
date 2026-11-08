@@ -567,3 +567,60 @@ nothing to do; pass --force to rescore
 /home/st_students/.local/lib/python3.10/site-packages/matplotlib/projections/__init__.py:63: UserWarning: Unable to import Axes3D. This may be due to multiple versions of Matplotlib being installed (e.g. as a system package and as a pip package). As a result, the 3D projection is not available.
   warnings.warn("Unable to import Axes3D. This may be due to multiple versions of "
 nothing to do; pass --force to rescore
+/home/st_students/.local/lib/python3.10/site-packages/matplotlib/projections/__init__.py:63: UserWarning: Unable to import Axes3D. This may be due to multiple versions of Matplotlib being installed (e.g. as a system package and as a pip package). As a result, the 3D projection is not available.
+  warnings.warn("Unable to import Axes3D. This may be due to multiple versions of "
+nothing to do; pass --force to rescore
+/home/st_students/.local/lib/python3.10/site-packages/matplotlib/projections/__init__.py:63: UserWarning: Unable to import Axes3D. This may be due to multiple versions of Matplotlib being installed (e.g. as a system package and as a pip package). As a result, the 3D projection is not available.
+  warnings.warn("Unable to import Axes3D. This may be due to multiple versions of "
+nothing to do; pass --force to rescore
+/home/st_students/.local/lib/python3.10/site-packages/matplotlib/projections/__init__.py:63: UserWarning: Unable to import Axes3D. This may be due to multiple versions of Matplotlib being installed (e.g. as a system package and as a pip package). As a result, the 3D projection is not available.
+  warnings.warn("Unable to import Axes3D. This may be due to multiple versions of "
+2026-11-08 16:38:00,800 - STRAP - INFO - [NGSIMLoader] Loading cached data from /home/st_students/MTP/data/raw/ngsim/ngsim_us-101.csv
+2026-11-08 16:38:08,191 - STRAP - INFO - [NGSIMLoader] Dropping 704,000 duplicate rows (0 duplicate groups differ in other columns)
+2026-11-08 16:38:09,038 - STRAP - INFO - [NGSIMLoader] 'us-101' period 1: 1,180,598 rows, frame_id offset=0
+2026-11-08 16:38:09,064 - STRAP - INFO - [NGSIMLoader] 'us-101' period 2: 1,403,095 rows, frame_id offset=9609
+2026-11-08 16:38:09,091 - STRAP - INFO - [NGSIMLoader] 'us-101' period 3: 1,515,240 rows, frame_id offset=19680
+2026-11-08 16:38:09,093 - STRAP - INFO - [NGSIMLoader] Loading cached data from /home/st_students/MTP/data/raw/ngsim/ngsim_i-80.csv
+2026-11-08 16:38:15,347 - STRAP - INFO - [NGSIMLoader] Dropping 4 duplicate rows (0 duplicate groups differ in other columns)
+2026-11-08 16:38:16,193 - STRAP - INFO - [NGSIMLoader] 'i-80' period 1: 1,262,676 rows, frame_id offset=29708
+2026-11-08 16:38:16,220 - STRAP - INFO - [NGSIMLoader] 'i-80' period 2: 1,549,916 rows, frame_id offset=39801
+2026-11-08 16:38:16,242 - STRAP - INFO - [NGSIMLoader] 'i-80' period 3: 1,753,791 rows, frame_id offset=49668
+2026-11-08 16:38:16,494 - STRAP - INFO - [NGSIMLoader] Combined 2 locations: 8,665,316 total rows
+2026-11-08 16:38:22,294 - STRAP - INFO - [NGSIMLoader] 11779 vehicles with >=80 frames
+2026-11-08 16:44:56,732 - STRAP - INFO - [NGSIMLoader] Built 778717 scenes
+2026-11-08 16:55:31,165 - STRAP - INFO - [NGSIMLoader] Built 778717 training samples
+2026-11-08 16:55:31,489 - STRAP - INFO - [NGSIMLoader] Neighbours per sample: mean=3.77 (paper: 6), zero-neighbour share=2.5%
+2026-11-08 16:55:32,928 - STRAP - INFO - [NGSIMLoader] Per-recording temporal split over 6 recordings: train=540149 {'i-80': 287507, 'us-101': 252642}, val=86077 {'i-80': 50059, 'us-101': 36018}, test=121130 {'i-80': 58995, 'us-101': 62135}
+2026-11-08 16:55:32,954 - STRAP - INFO - test split: 121130 samples
+device: cuda
+CognitiveModel: 227,979 parameters
+risk oracle:   0%|          | 0/121130 [00:00<?, ?sample/s]2026-11-08 16:55:51,300 - STRAP - INFO - risk scoring [oracle]: 25600/121130 samples
+risk oracle:  35%|███▌      | 42893/121130 [00:30<00:54, 1429.76sample/s]2026-11-08 16:56:08,892 - STRAP - INFO - risk scoring [oracle]: 51200/121130 samples
+risk oracle:  35%|███▌      | 42893/121130 [00:40<00:54, 1429.76sample/s]2026-11-08 16:56:26,638 - STRAP - INFO - risk scoring [oracle]: 76800/121130 samples
+risk oracle:  71%|███████   | 86144/121130 [01:00<00:24, 1436.52sample/s]2026-11-08 16:56:44,526 - STRAP - INFO - risk scoring [oracle]: 102400/121130 samples
+risk oracle:  71%|███████   | 86144/121130 [01:20<00:24, 1436.52sample/s]risk oracle: 100%|██████████| 121130/121130 [01:24<00:00, 1432.65sample/s]
+2026-11-08 16:59:26,834 - STRAP - INFO - oracle: 1814838 pairs, 977 collisions
+device: cuda
+CognitiveModel: 227,979 parameters
+risk cv:   0%|          | 0/121130 [00:00<?, ?sample/s]2026-11-08 16:59:46,569 - STRAP - INFO - risk scoring [cv]: 25600/121130 samples
+risk cv:  32%|███▏      | 39168/121130 [00:30<01:02, 1303.62sample/s]2026-11-08 17:00:06,103 - STRAP - INFO - risk scoring [cv]: 51200/121130 samples
+risk cv:  32%|███▏      | 39168/121130 [00:46<01:02, 1303.62sample/s]2026-11-08 17:00:25,789 - STRAP - INFO - risk scoring [cv]: 76800/121130 samples
+risk cv:  65%|██████▍   | 78336/121130 [01:00<00:32, 1303.21sample/s]risk cv:  65%|██████▍   | 78336/121130 [01:16<00:32, 1303.21sample/s]2026-11-08 17:00:45,695 - STRAP - INFO - risk scoring [cv]: 102400/121130 samples
+risk cv:  97%|█████████▋| 116902/121130 [01:30<00:03, 1295.15sample/s]risk cv: 100%|██████████| 121130/121130 [01:33<00:00, 1297.29sample/s]
+2026-11-08 17:03:45,392 - STRAP - INFO - cognitive_tuned / cv: 1814838 pairs, 977 collisions, 1.6 min
+risk cv_scene:   0%|          | 0/121130 [00:00<?, ?sample/s]2026-11-08 17:03:56,786 - STRAP - INFO - risk scoring [cv_scene]: 25600/121130 samples
+2026-11-08 17:04:07,957 - STRAP - INFO - risk scoring [cv_scene]: 51200/121130 samples
+risk cv_scene:  58%|█████▊    | 69889/121130 [00:30<00:22, 2325.96sample/s]2026-11-08 17:04:19,247 - STRAP - INFO - risk scoring [cv_scene]: 76800/121130 samples
+2026-11-08 17:04:30,507 - STRAP - INFO - risk scoring [cv_scene]: 102400/121130 samples
+risk cv_scene:  58%|█████▊    | 69889/121130 [00:47<00:22, 2325.96sample/s]risk cv_scene: 100%|██████████| 121130/121130 [00:51<00:00, 2331.79sample/s]
+2026-11-08 17:05:15,672 - STRAP - INFO - cognitive_tuned / cv_scene: 440276 pairs, 912 collisions, 0.9 min
+risk pred:   0%|          | 0/121130 [00:00<?, ?sample/s]risk pred:   5%|▍         | 5559/121130 [00:30<10:28, 184.00sample/s]risk pred:   5%|▍         | 5559/121130 [00:47<10:28, 184.00sample/s]risk pred:   9%|▉         | 11464/121130 [01:00<09:32, 191.52sample/s]risk pred:   9%|▉         | 11464/121130 [01:19<09:32, 191.52sample/s]risk pred:  14%|█▍        | 17539/121130 [01:30<08:48, 196.18sample/s]risk pred:  14%|█▍        | 17539/121130 [01:49<08:48, 196.18sample/s]2026-11-08 17:07:13,400 - STRAP - INFO - risk scoring [pred]: 25600/121130 samples
+risk pred:  22%|██▏       | 27028/121130 [02:00<06:27, 243.01sample/s]risk pred:  22%|██▏       | 27028/121130 [02:19<06:27, 243.01sample/s]risk pred:  31%|███       | 37057/121130 [02:30<05:06, 274.46sample/s]risk pred:  31%|███       | 37057/121130 [02:49<05:06, 274.46sample/s]risk pred:  38%|███▊      | 46115/121130 [03:01<04:25, 282.59sample/s]risk pred:  38%|███▊      | 46115/121130 [03:19<04:25, 282.59sample/s]2026-11-08 17:08:43,111 - STRAP - INFO - risk scoring [pred]: 51200/121130 samples
+risk pred:  44%|████▍     | 53401/121130 [03:31<04:12, 268.56sample/s]risk pred:  44%|████▍     | 53401/121130 [03:49<04:12, 268.56sample/s]risk pred:  50%|████▉     | 60390/121130 [04:02<03:57, 255.87sample/s]risk pred:  50%|████▉     | 60390/121130 [04:19<03:57, 255.87sample/s]risk pred:  57%|█████▋    | 69241/121130 [04:32<03:13, 267.65sample/s]risk pred:  57%|█████▋    | 69241/121130 [04:49<03:13, 267.65sample/s]risk pred:  65%|██████▍   | 78295/121130 [05:02<02:34, 277.46sample/s]2026-11-08 17:10:19,441 - STRAP - INFO - risk scoring [pred]: 76800/121130 samples
+risk pred:  65%|██████▍   | 78295/121130 [05:19<02:34, 277.46sample/s]risk pred:  72%|███████▏  | 87107/121130 [05:37<02:06, 268.46sample/s]risk pred:  72%|███████▏  | 87107/121130 [05:49<02:06, 268.46sample/s]risk pred:  79%|███████▉  | 95834/121130 [06:07<01:32, 274.57sample/s]risk pred:  79%|███████▉  | 95834/121130 [06:19<01:32, 274.57sample/s]risk pred:  86%|████████▌ | 104450/121130 [06:38<01:00, 277.84sample/s]2026-11-08 17:11:54,701 - STRAP - INFO - risk scoring [pred]: 102400/121130 samples
+risk pred:  86%|████████▌ | 104450/121130 [06:49<01:00, 277.84sample/s]risk pred:  93%|█████████▎| 112822/121130 [07:08<00:29, 277.15sample/s]risk pred:  93%|█████████▎| 112822/121130 [07:19<00:29, 277.15sample/s]risk pred: 100%|██████████| 121130/121130 [07:37<00:00, 264.80sample/s]
+2026-11-08 17:13:31,330 - STRAP - INFO - cognitive_tuned / pred: 440276 pairs, 912 collisions, 7.6 min
+
+model                  status         minutes
+cognitive_tuned        ok                14.1
+total 14.1 min
