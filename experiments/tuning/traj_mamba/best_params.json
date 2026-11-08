@@ -1,0 +1,12 @@
+{
+  "trial": 10,
+  "val_rmse": 2.044238233566284,
+  "params": {
+    "learning_rate": 0.0019301407027005491,
+    "lr_decay": 0.7894841577316409,
+    "batch_size": 128,
+    "weight_decay": 4.5824424444417766e-06,
+    "num_epochs": 16
+  },
+  "status": "stopped by request after 20/30 finished trials; no full-data retrain"
+}
