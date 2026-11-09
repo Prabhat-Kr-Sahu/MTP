@@ -1,0 +1,162 @@
+[
+ {
+  "index": 2387,
+  "vid": 2200494,
+  "kind": "LCL",
+  "t_c": 40576,
+  "min_ttc": 0.060957156121730804,
+  "plausible": true
+ },
+ {
+  "index": 3122,
+  "vid": 2300800,
+  "kind": "LCL",
+  "t_c": 52982,
+  "min_ttc": 0.08154081553220749,
+  "plausible": true
+ },
+ {
+  "index": 1992,
+  "vid": 2101278,
+  "kind": "LCL",
+  "t_c": 33612,
+  "min_ttc": 0.2193937450647354,
+  "plausible": true
+ },
+ {
+  "index": 2051,
+  "vid": 2101628,
+  "kind": "LCR",
+  "t_c": 34696,
+  "min_ttc": 0.3625379800796509,
+  "plausible": true
+ },
+ {
+  "index": 2442,
+  "vid": 2200706,
+  "kind": "LCR",
+  "t_c": 41056,
+  "min_ttc": 0.3802248239517212,
+  "plausible": true
+ },
+ {
+  "index": 2443,
+  "vid": 2200706,
+  "kind": "LCL",
+  "t_c": 41060,
+  "min_ttc": 0.3802248239517212,
+  "plausible": true
+ },
+ {
+  "index": 128,
+  "vid": 1100586,
+  "kind": "LCR",
+  "t_c": 1660,
+  "min_ttc": 0.5564737915992737,
+  "plausible": true
+ },
+ {
+  "index": 695,
+  "vid": 1200037,
+  "kind": "LCL",
+  "t_c": 10394,
+  "min_ttc": 0.5742809176445007,
+  "plausible": true
+ },
+ {
+  "index": 3192,
+  "vid": 2301077,
+  "kind": "LCL",
+  "t_c": 54400,
+  "min_ttc": 0.772797703742981,
+  "plausible": true
+ },
+ {
+  "index": 3398,
+  "vid": 2302007,
+  "kind": "LCL",
+  "t_c": 58172,
+  "min_ttc": 0.7804129123687744,
+  "plausible": true
+ },
+ {
+  "index": 867,
+  "vid": 1200720,
+  "kind": "LCL",
+  "t_c": 13176,
+  "min_ttc": 0.8869336843490601,
+  "plausible": true
+ },
+ {
+  "index": 3423,
+  "vid": 2302098,
+  "kind": "LCL",
+  "t_c": 57684,
+  "min_ttc": 0.9777722358703613,
+  "plausible": true
+ },
+ {
+  "index": 1298,
+  "vid": 1300362,
+  "kind": "LCL",
+  "t_c": 21870,
+  "min_ttc": 1.042149305343628,
+  "plausible": true
+ },
+ {
+  "index": 672,
+  "vid": 1102989,
+  "kind": "LCL",
+  "t_c": 8876,
+  "min_ttc": 1.0464378595352173,
+  "plausible": true
+ },
+ {
+  "index": 3265,
+  "vid": 2301363,
+  "kind": "LCR",
+  "t_c": 55374,
+  "min_ttc": 1.0483752489089966,
+  "plausible": true
+ },
+ {
+  "index": 2127,
+  "vid": 2101926,
+  "kind": "LCL",
+  "t_c": 35774,
+  "min_ttc": 1.1937469244003296,
+  "plausible": true
+ },
+ {
+  "index": 2600,
+  "vid": 2201331,
+  "kind": "LCL",
+  "t_c": 43996,
+  "min_ttc": 1.1978399753570557,
+  "plausible": true
+ },
+ {
+  "index": 1497,
+  "vid": 1301113,
+  "kind": "LCR",
+  "t_c": 25570,
+  "min_ttc": 1.2532668113708496,
+  "plausible": true
+ },
+ {
+  "index": 2815,
+  "vid": 2202148,
+  "kind": "LCL",
+  "t_c": 46888,
+  "min_ttc": 1.2603422403335571,
+  "plausible": true
+ },
+ {
+  "index": 2857,
+  "vid": 2202481,
+  "kind": "LCR",
+  "t_c": 48090,
+  "min_ttc": 1.321042776107788,
+  "plausible": true
+ }
+]

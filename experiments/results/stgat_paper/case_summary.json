@@ -1,0 +1,47 @@
+{
+ "case": {
+  "index": 2387,
+  "vid": 2200494,
+  "kind": "LCL",
+  "t_c": 40576,
+  "min_ttc": 0.060957156121730804,
+  "plausible": true
+ },
+ "peaks": {
+  "cri_paper": {
+   "t": 2.2,
+   "value": 0.9129886627197266
+  },
+  "cri_fixed": {
+   "t": 0.6,
+   "value": 0.7630728483200073
+  },
+  "p_coll_gauss_max": {
+   "t": -2.6,
+   "value": 1.0
+  },
+  "ittc": {
+   "t": 0.2,
+   "value": 16.404961934363946
+  },
+  "thw_s": {
+   "t": 0.2,
+   "value": 0.017980240099156927
+  },
+  "lcttc_s": {
+   "t": 1.6,
+   "value": 5.01376485824585
+  }
+ },
+ "lead_s": {
+  "cri_paper_vs_ittc": -2.0,
+  "cri_paper_vs_thw_s": -2.0,
+  "cri_paper_vs_lcttc_s": -0.6,
+  "cri_fixed_vs_ittc": -0.4,
+  "cri_fixed_vs_thw_s": -0.4,
+  "cri_fixed_vs_lcttc_s": 1.0,
+  "p_coll_gauss_max_vs_ittc": 2.8,
+  "p_coll_gauss_max_vs_thw_s": 2.8,
+  "p_coll_gauss_max_vs_lcttc_s": 4.2
+ }
+}

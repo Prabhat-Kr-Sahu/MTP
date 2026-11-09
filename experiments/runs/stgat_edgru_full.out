@@ -1,0 +1,5 @@
+[1/1] stgat_edgru.ipynb ... ok (154.4 min, log: experiments/runs/stgat_edgru.log)
+
+notebook                           status       minutes
+stgat_edgru.ipynb                  ok            154.4
+total 154.4 min; compare with: python -c "from experiments.benchmark import compare; print(compare(plot=False)[0])"
