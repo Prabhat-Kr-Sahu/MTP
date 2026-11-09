@@ -1,0 +1,73 @@
+{
+  "vehicle": 2202491,
+  "metric": "p_coll_gauss placement, source pred, mean over 15 models",
+  "collision": {
+    "target": 2202491,
+    "neighbour": 2202486,
+    "event": 220248602202491,
+    "mean_placement": 0.9993023196856181,
+    "placement_by_model": {
+      "inatran": 0.9995664358139038,
+      "cognitive": 0.9993376731872559,
+      "dacr_amtp": 0.9993809461593628,
+      "miat": 0.9993513226509094,
+      "mha_lstm": 0.9993137717247009,
+      "stdan": 0.9992705583572388,
+      "x_track": 0.9993160367012024,
+      "traj_mamba": 0.999254584312439,
+      "inatran_tuned": 0.9993228912353516,
+      "cognitive_tuned": 0.9993103742599487,
+      "dacr_amtp_tuned": 0.9992784857749939,
+      "miat_tuned": 0.9992932677268982,
+      "mha_lstm_tuned": 0.9993262887001038,
+      "stdan_tuned": 0.9989109039306641,
+      "x_track_tuned": 0.9993012547492981
+    }
+  },
+  "missed": {
+    "target": 2202491,
+    "neighbour": 2202586,
+    "event": 220249102202586,
+    "mean_placement": 0.3755911558866501,
+    "placement_by_model": {
+      "inatran": 0.9122458696365356,
+      "cognitive": 0.9852901101112366,
+      "dacr_amtp": 0.3690812289714813,
+      "miat": 0.508389413356781,
+      "mha_lstm": 0.12100103497505188,
+      "stdan": 0.15180352330207825,
+      "x_track": 0.1715172380208969,
+      "traj_mamba": 0.39458853006362915,
+      "inatran_tuned": 0.8466442227363586,
+      "cognitive_tuned": 0.14031758904457092,
+      "dacr_amtp_tuned": 0.1402527242898941,
+      "miat_tuned": 0.15059040486812592,
+      "mha_lstm_tuned": 0.17040768265724182,
+      "stdan_tuned": 0.1689532995223999,
+      "x_track_tuned": 0.40278446674346924
+    }
+  },
+  "near_miss": {
+    "target": 2202491,
+    "neighbour": 2202493,
+    "event": 220249102202493,
+    "mean_placement": 0.6052023884322909,
+    "placement_by_model": {
+      "inatran": 0.33192164699236554,
+      "cognitive": 0.4176955024401347,
+      "dacr_amtp": 0.7047837575276693,
+      "miat": 0.8403180241584778,
+      "mha_lstm": 0.7514319519201914,
+      "stdan": 0.46309419969717663,
+      "x_track": 0.6228202084700266,
+      "traj_mamba": 0.6437661449114481,
+      "inatran_tuned": 0.2834385534127553,
+      "cognitive_tuned": 0.5685135225454966,
+      "dacr_amtp_tuned": 0.6228557328383127,
+      "miat_tuned": 0.7321710785230001,
+      "mha_lstm_tuned": 0.8112402160962423,
+      "stdan_tuned": 0.6297496656576792,
+      "x_track_tuned": 0.6542356212933859
+    }
+  }
+}
