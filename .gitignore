@@ -45,3 +45,4 @@ graphify-out/
 /experiments/tuning/*/trial_*/
 /experiments/tuning/_data/
 /experiments/tuning_debug/
+!experiments/results/stgat_paper/*.csv
