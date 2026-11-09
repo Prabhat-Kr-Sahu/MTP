@@ -58,13 +58,17 @@ OUT = EXPERIMENTS / "results" / "risk_timeline"
 FIGURES = EXPERIMENTS / "figures"
 
 BASELINES = ("inatran", "cognitive", "dacr_amtp", "miat", "mha_lstm", "stdan",
-             "x_track", "traj_mamba")
+             "x_track", "traj_mamba", "stgat_edgru")
 # traj_mamba's tuning was stopped at 20/30 trials and never retrained.
-MODELS = BASELINES + tuple(f"{b}_tuned" for b in BASELINES[:7])
+MODELS = BASELINES + tuple(f"{b}_tuned" for b in BASELINES if b != "traj_mamba")
+# The five cases were chosen from these 15 (stgat_edgru came later); case and
+# safe/false-alarm selection stay on them so adding a model never moves a case.
+SELECTION_MODELS = tuple(m for m in MODELS if not m.startswith("stgat_edgru"))
 PLOTTED = ("p_coll_gauss", "p_coll_mc")
 # Scored per window: the study's six headline measures (p_coll_* plus the risk
-# field, minimum distance, true TTC -- inf when no contact -- and TET).
-SCORED = HEADLINE_METRICS
+# field, minimum distance, true TTC -- inf when no contact -- and TET), plus the
+# Collision Risk Index of Su et al. 2025, as printed and fixed.
+SCORED = HEADLINE_METRICS + ("cri_paper", "cri_fixed")
 # cv: the model predicts the target (path + uncertainty), the 15 nearest
 #     neighbours roll forward at constant velocity -- defined at every window,
 #     and the study's recommended deployable risk.
@@ -93,11 +97,11 @@ def _ids(key):
 def event_placements(tag, metric="p_coll_gauss"):
     """(event keys, (models, events) mean placement) from the committed npz."""
     keys, rows = None, []
-    for name in MODELS:
+    for name in SELECTION_MODELS:
         z = np.load(RISK_V2 / f"{name}.pred.npz")
         unique, inverse = np.unique(z[f"events_{tag}"], return_inverse=True)
         if keys is not None and not np.array_equal(unique, keys):
-            raise ValueError(f"{name}: event set differs from {MODELS[0]}")
+            raise ValueError(f"{name}: event set differs from {SELECTION_MODELS[0]}")
         keys = unique
         placement = z[f"placement_{tag}__{metric}"]
         rows.append(np.bincount(inverse, placement) / np.bincount(inverse))
@@ -121,7 +125,8 @@ def select_cases():
     def ranked(keys, placements, order):
         return [{"pair": list(_ids(keys[i])), "event": int(keys[i]),
                  "mean_placement": float(placements[:, i].mean()),
-                 "placement_by_model": dict(zip(MODELS, map(float, placements[:, i])))}
+                 "placement_by_model": dict(zip(SELECTION_MODELS,
+                                                map(float, placements[:, i])))}
                 for i in order[:CANDIDATES]]
 
     cases = {
@@ -373,7 +378,7 @@ def derive_safe_and_alarm(scores, truth, windows):
     which is defined throughout. The collision case's window (the particular
     vehicle) is preferred for both, and the two are never the same neighbour.
     """
-    scores = scores[scores.source == "cv"]
+    scores = scores[(scores.source == "cv") & scores.model.isin(SELECTION_MODELS)]
     n_models = scores.model.nunique()
     peak = (scores.groupby(["case", "neighbour", "t"])["p_coll_gauss"].median()
             .groupby(["case", "neighbour"]).max())
@@ -412,6 +417,8 @@ METRIC_LABEL = {
     "min_dist": "predicted minimum distance over the next 5 s, m (lower = riskier)  [min_dist]",
     "ttc_true": "predicted time to contact, s (lower = riskier; none = no contact)  [ttc_true]",
     "tet": "predicted time closer than 2 m within the next 5 s, s  [tet]",
+    "cri_paper": "Collision Risk Index of Su et al. 2025, as printed  [cri_paper]",
+    "cri_fixed": "Collision Risk Index, covariances added, rising intensity  [cri_fixed]",
 }
 INK, INK_2, MUTED, GRID, AXIS, SURFACE = "#0b0b0b", "#52514e", "#898781", "#e1e0d9", "#c3c2b7", "#fcfcfb"
 BASE_C, TUNED_C = "#2a78d6", "#eb6834"
@@ -450,9 +457,10 @@ def plot_case(case, info, scores, truth, metric, source, path, top):
     windows = scores[scores.case == info.get("from_window", case)].t.nunique()
     x_range = (-BEFORE * DT, AFTER * DT)
 
-    fig = plt.figure(figsize=(13, 8.2), facecolor=SURFACE)
-    grid = fig.add_gridspec(3, 4, height_ratios=[1, 1, 0.85], hspace=0.45, wspace=0.12,
-                            top=0.86)
+    rows_n = -(-len(BASELINES) // 4)
+    fig = plt.figure(figsize=(13, 2.9 * rows_n + 2.4), facecolor=SURFACE)
+    grid = fig.add_gridspec(rows_n + 1, 4, height_ratios=[1] * rows_n + [0.85], hspace=0.45,
+                            wspace=0.12, top=0.86)
     for i, base in enumerate(BASELINES):
         ax = fig.add_subplot(grid[i // 4, i % 4])
         _style(ax)
@@ -471,10 +479,10 @@ def plot_case(case, info, scores, truth, metric, source, path, top):
             ax.tick_params(labelleft=False)
         else:
             ax.set_ylabel(metric, color=INK_2, fontsize=9)
-        if i // 4 == 0:
+        if i + 4 < len(BASELINES):
             ax.tick_params(labelbottom=False)
 
-    ax = fig.add_subplot(grid[2, :])
+    ax = fig.add_subplot(grid[rows_n, :])
     _style(ax)
     dist = truth[(truth.case == info.get("from_window", case))
                  & (truth.neighbour == info["neighbour"])].sort_values("t")

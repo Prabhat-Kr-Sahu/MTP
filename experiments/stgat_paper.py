@@ -292,14 +292,18 @@ def train(args):
         val_rmse = horizon_rmse(pred[:, 0, :, :2], vgt[:, 0])["rmse_avg"]
         log.append({"epoch": epoch, "train_nll": total / n, "val_nll": val_nll,
                     "val_rmse_main": val_rmse})
-        if val_nll < best:
-            best = val_nll
+        # Checkpoint on val RMSE of the main vehicle (the paper's reported metric;
+        # it does not say how it selects). Val NLL is useless for this: teacher
+        # forcing makes sigma overconfident, so free-running val NLL rises from
+        # epoch 1 while RMSE falls -- picking on it would keep the epoch-1 model.
+        if val_rmse < best:
+            best = val_rmse
             torch.save(model.state_dict(), run / "best_model.pt")
         print(f"[{args.ablation}] epoch {epoch}: train {total / n:.3f} val nll {val_nll:.3f} "
               f"val rmse {val_rmse:.3f}", flush=True)
     (out / f"train_{args.ablation}.json").write_text(json.dumps({
         "ablation": args.ablation, "flags": ABLATIONS[args.ablation], "epochs": epochs,
-        "batch": BATCH, "lr": LR, "minutes": (time.time() - t0) / 60, "best_val_nll": best,
+        "batch": BATCH, "lr": LR, "minutes": (time.time() - t0) / 60, "best_val_rmse_main": best,
         "log": log}, indent=1))
 
 

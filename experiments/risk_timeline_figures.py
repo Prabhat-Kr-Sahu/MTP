@@ -159,6 +159,8 @@ METRIC_ROWS = (  # name, axis label, riskier direction
     ("min_dist", "min_dist\nm", "down"),
     ("ttc_true", "ttc_true, s\ngap = no contact\nclipped at 5 s", "down"),
     ("tet", "tet\ns below 2 m", "up"),
+    ("cri_paper", "cri_paper\nas printed", "up"),
+    ("cri_fixed", "cri_fixed\nfixed", "up"),
 )
 
 
