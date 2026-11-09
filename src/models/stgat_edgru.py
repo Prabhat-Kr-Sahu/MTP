@@ -36,6 +36,8 @@ def _sinusoid(T, d, device):
 
 
 class STGATEDGRU(nn.Module):
+    POS_SCALE = 10.0   # metres; keeps the decoder's position input near unit scale
+
     def __init__(self, in_dim, t_f, d=128, heads=8, enc_layers=2, dropout=0.2,
                  d_close=50.0, pos_mean=None, pos_std=None,
                  use_transformer=True, use_attention=True, use_gmu=True):
@@ -111,12 +113,20 @@ class STGATEDGRU(nn.Module):
         return h[-1].view(B, N, self.d)
 
     def decode(self, h, gt=None):
-        """h (M,d) -> (M,t_f,5). gt (M,t_f,2) enables teacher forcing."""
+        """h (M,d) -> (M,t_f,5). gt (M,t_f,2) enables teacher forcing.
+
+        The FC head emits the step increment and mu_t = p_{t-1} + delta; the
+        GRU sees p_{t-1} / POS_SCALE. Feeding raw positions (up to ~75 m) and
+        emitting absolute positions saturated the GRU in a debug run (5 s RMSE
+        3x worse than constant velocity); this keeps the paper's "previous
+        position in, position distribution out" loop.
+        """
         prev = h.new_zeros(h.shape[0], 2)
         out = []
         for t in range(self.t_f):
-            h = self.d_gru(prev, h)
+            h = self.d_gru(prev / self.POS_SCALE, h)
             o = self.head(self.drop(h))
+            o = torch.cat([prev + o[:, :2], o[:, 2:]], -1)
             out.append(o)
             prev = gt[:, t] if gt is not None else o[:, :2]
         o = torch.stack(out, 1)
