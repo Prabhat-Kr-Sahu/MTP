@@ -535,15 +535,39 @@ def case(args):
                       "min_ttc": float(ttc.min()), "plausible": not (overlap or jerky)})
     cands.sort(key=lambda c: (not c["plausible"], c["min_ttc"]))
     (out / "cases.json").write_text(json.dumps(cands[:20], indent=1))
-    pick = cands[0] if args.case_index is None else next(
-        c for c in cands if c["index"] == args.case_index)
-    print("case:", pick)
+    picks = ([next(c for c in cands if c["index"] == args.case_index)]
+             if args.case_index is not None
+             else [c for c in cands if c["plausible"]][:args.cases])
+    leads = []
+    for n, pick in enumerate(picks):
+        print("case:", pick, flush=True)
+        frame = case_frame(model, data, tracks, by_frame, mean, std, pick)
+        summary = case_summary(frame)
+        # The top case keeps the paper's single-case file names (Fig. 6 analogue).
+        tag = "" if n == 0 else f"_{pick['index']}"
+        frame.to_csv(out / f"case_scores{tag}.csv", index=False)
+        if n == 0:
+            (out / "case_summary.json").write_text(json.dumps({"case": pick, **summary},
+                                                              indent=1))
+            print(frame.round(3).to_string(index=False))
+        plot_case(out / f"risk_timeline_paper_case{tag}.png", frame, pick, summary)
+        leads.append({**pick, **{f"t_peak_{k}": (v or {}).get("t")
+                                 for k, v in summary["peaks"].items()},
+                      **{f"lead_{k}": v for k, v in summary["lead_s"].items()}})
+    table = pd.DataFrame(leads)
+    table.to_csv(out / "case_leads.csv", index=False)
+    print(table.round(2).to_string(index=False))
+    print("median lead (s; > 0 = the predicted measure peaks first):")
+    print(table.filter(like="lead_").median().round(2).to_string())
 
+
+def case_frame(model, data, tracks, by_frame, mean, std, pick):
+    """Sliding 3 s windows every 0.2 s from 8 s before to 4 s after the crossing."""
     meta = data["meta"][pick["index"]]
     vid, t_c, target_lane = meta["vid"], meta["t_c"], meta["target_lane"]
     main = tracks[vid]
     rows = []
-    end_first = max(t_c - 80, main["f0"] + STEP * (TH - 1))     # 8 s before the crossing
+    end_first = max(t_c - 80, main["f0"] + STEP * (TH - 1))
     end_last = min(t_c + 40, main["f0"] + STEP * (main["n"] - 1))
     for e in range(end_first - end_first % STEP, end_last + 1, STEP):
         first = e - STEP * (TH - 1)
@@ -558,18 +582,13 @@ def case(args):
         with torch.no_grad():
             pred = model.forward_all(x, mask_t)
         sc = pair_scores(pred, feat_t[:, -1, :, :2], mask_t, dims_t)
+        p_max = sc["p_coll_gauss"][0].nan_to_num(0.0).max().item() if len(ids) > 1 else 0.0
         rows.append({"t": (e - t_c) / 10.0, "frame": e, "n_neighbours": len(ids) - 1,
                      "cri_paper": float(sc["cri_paper_multi"][0]),
                      "cri_fixed": float(sc["cri_fixed_multi"][0]),
-                     "p_coll_gauss_max": float(np.nan_to_num(sc["p_coll_gauss"][0].max().item())),
+                     "p_coll_gauss_max": float(p_max),
                      **surrogates(tracks, by_frame, vid, e, target_lane)})
-    frame = pd.DataFrame(rows)
-    frame.to_csv(out / "case_scores.csv", index=False)
-    summary = case_summary(frame)
-    (out / "case_summary.json").write_text(json.dumps({"case": pick, **summary}, indent=1))
-    print(frame.round(3).to_string(index=False))
-    print(summary)
-    plot_case(out / "risk_timeline_paper_case.png", frame, pick, summary)
+    return pd.DataFrame(rows)
 
 
 def surrogates(tracks, by_frame, vid, e, target_lane):
@@ -612,10 +631,11 @@ def case_summary(frame):
         i = s.idxmin() if low else s.idxmax()
         return {"t": float(frame.t[i]), "value": float(s[i])}
     peaks = {"cri_paper": peak("cri_paper"), "cri_fixed": peak("cri_fixed"),
-             "ittc": peak("ittc"), "thw_s": peak("thw_s", low=True),
+             "p_coll_gauss_max": peak("p_coll_gauss_max"), "ittc": peak("ittc"), "thw_s": peak("thw_s", low=True),
              "lcttc_s": peak("lcttc_s", low=True)}
     lead = {f"{c}_vs_{o}": round(peaks[o]["t"] - peaks[c]["t"], 2)
-            for c in ("cri_paper", "cri_fixed") for o in ("ittc", "thw_s", "lcttc_s")
+            for c in ("cri_paper", "cri_fixed", "p_coll_gauss_max")
+            for o in ("ittc", "thw_s", "lcttc_s")
             if peaks[c] and peaks[o]}
     return {"peaks": peaks, "lead_s": lead}
 
@@ -627,7 +647,9 @@ def plot_case(path, frame, pick, summary):
     fig, (top, bot) = plt.subplots(2, 1, figsize=(8, 6), sharex=True)
     top.plot(frame.t, frame.cri_paper, label="CRI (paper, as printed)")
     top.plot(frame.t, frame.cri_fixed, label="CRI (fixed)")
-    top.set_ylabel("CRI")
+    top.plot(frame.t, frame.p_coll_gauss_max, label="p_coll_gauss, max over neighbours",
+             color="grey", lw=1)
+    top.set_ylabel("predicted risk")
     top.legend(fontsize=8)
     bot.plot(frame.t, frame.ittc, color="C3", label="ITTC (1/s)")
     bot.set_ylabel("ITTC (1/s)")
@@ -658,6 +680,8 @@ def main(argv=None):
     for m in ("prepare", "train", "eval", "risk", "case"):
         mode.add_argument(f"--{m}", action="store_true")
     parser.add_argument("--ablation", choices=list(ABLATIONS), default="full")
+    parser.add_argument("--cases", type=int, default=10,
+                        help="--case: how many of the top plausible near-conflicts to run")
     parser.add_argument("--case-index", type=int, default=None,
                         help="sample index from cases.json to plot instead of the top one")
     parser.add_argument("--debug", action="store_true")
