@@ -389,9 +389,11 @@ def main(argv=None):
     parser.add_argument("--out", type=Path, default=EXPERIMENTS)
     parser.add_argument("--n-boot", type=int, default=2000)
     parser.add_argument("--no-figures", action="store_true")
+    parser.add_argument("--models", nargs="+", default=ORDER,
+                        help="default: the tuned set; pass more with a separate --out")
     args = parser.parse_args(argv)
     risk_dir = str(args.risk_dir)
-    models = ORDER
+    models = args.models
 
     rmse = rmse_table(models)
     risk = risk_table(models, risk_dir, args.n_boot)
