@@ -11,10 +11,11 @@ the model predicts both the target and the neighbour, as in the headline study.
     --score    rebuild the windows and score all 15 models     (lab PC: NGSIM + checkpoints)
     --plot     safe / false-alarm selection and the figures     (local, from the CSVs)
 
-Cases:
+Cases (each the first ranked candidate that is a real approach -- >= 10 m apart
+5 s before the closest approach -- with >= 70 of its 91 windows):
     collision   < 2 m event the 15 models rank highest (mean p_coll_gauss placement)
     missed      < 2 m event they rank lowest
-    near_miss   2-3 m event, median placement
+    near_miss   2-3 m event, nearest the median placement
     safe        a neighbour of the collision case's target that stays > 5 m away
                 (but within 30 m, so it interacts), lowest peak median risk
     false_alarm same pool, highest peak median risk
@@ -57,6 +58,10 @@ MODELS = BASELINES + tuple(f"{b}_tuned" for b in BASELINES[:7])
 PLOTTED = ("p_coll_gauss", "p_coll_mc")
 BEFORE, AFTER = 80, 10          # frames around the closest approach: -8 s .. +1 s
 SAFE_MIN_DIST, INTERACT_DIST, ALARM_P = 5.0, 30.0, 0.1
+CANDIDATES = 40                 # ranked events kept per case
+APPROACH_DIST = 10.0            # m apart 5 s before t*: a real approach, not a duplicate track
+MIN_WINDOWS = 70                # of the 91 windows in [-8 s, +1 s]
+DETECTED, MISSED = 0.95, 0.7    # mean placement bounds for the two collision cases
 LABEL_DIST = 2.0
 
 
@@ -83,36 +88,32 @@ def event_placements(tag, metric="p_coll_gauss"):
 
 
 def select_cases():
+    """Ranked candidate events per case, from the placements alone.
+
+    The ranking cannot see tracking artefacts (two tracks of one car sitting
+    0.2 m apart for seconds rank as a perfectly detected collision) or tracks
+    that end at the event, so --score walks each list on the real tracks and
+    takes the first candidate that passes `check_candidate`.
+    """
     k2, p2 = event_placements("2")
     k3, p3 = event_placements("3")
     m2, m3 = p2.mean(0), p3.mean(0)
+    near = np.flatnonzero(~np.isin(k3, k2))
+    near = near[np.argsort(np.abs(m3[near] - np.median(m3[near])))]
 
-    missed = int(m2.argmin())
-    shares = np.array([bool(set(_ids(k)) & set(_ids(k2[missed]))) for k in k2])
-    shares[missed] = False
-    pool = shares if shares.any() else np.arange(len(k2)) != missed
-    collision = int(np.where(pool, m2, -np.inf).argmax())
-    common = set(_ids(k2[collision])) & set(_ids(k2[missed]))
-    vehicle = common.pop() if common else _ids(k2[collision])[0]
-
-    near = ~np.isin(k3, k2)
-    with_vehicle = near & np.array([vehicle in _ids(k) for k in k3])
-    index = np.flatnonzero(with_vehicle if with_vehicle.any() else near)
-    near_miss = int(index[np.argsort(m3[index])[len(index) // 2]])
-
-    def case(key, placements):
-        a, b = _ids(key)
-        target = vehicle if vehicle in (a, b) else a
-        return {"target": target, "neighbour": b if target == a else a, "event": int(key),
-                "mean_placement": float(placements.mean()),
-                "placement_by_model": dict(zip(MODELS, map(float, placements)))}
+    def ranked(keys, placements, order):
+        return [{"pair": list(_ids(keys[i])), "event": int(keys[i]),
+                 "mean_placement": float(placements[:, i].mean()),
+                 "placement_by_model": dict(zip(MODELS, map(float, placements[:, i])))}
+                for i in order[:CANDIDATES]]
 
     cases = {
-        "vehicle": vehicle,
         "metric": "p_coll_gauss placement, source pred, mean over 15 models",
-        "collision": case(k2[collision], p2[:, collision]),
-        "missed": case(k2[missed], p2[:, missed]),
-        "near_miss": case(k3[near_miss], p3[:, near_miss]),
+        "candidates": {
+            "collision": ranked(k2, p2, np.argsort(-m2)),
+            "missed": ranked(k2, p2, np.argsort(m2)),
+            "near_miss": ranked(k3, p3, near),
+        },
     }
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / "cases.json").write_text(json.dumps(cases, indent=2), encoding="utf-8")
@@ -122,16 +123,92 @@ def select_cases():
 # --------------------------------------------------------------------------- #
 #  --score
 # --------------------------------------------------------------------------- #
-def closest_frame(df, a, b):
-    """(frame, distance) of the pair's minimum true separation over shared frames."""
+def pair_distance(df, a, b):
+    """True separation of vehicles a and b, indexed by shared frame."""
     cols = ["frame_id", "local_y", "local_x"]
     both = df.loc[df.vehicle_id == a, cols].merge(
         df.loc[df.vehicle_id == b, cols], on="frame_id", suffixes=("_a", "_b"))
     if both.empty:
         raise ValueError(f"vehicles {a} and {b} never share a frame")
-    dist = np.hypot(both.local_y_a - both.local_y_b, both.local_x_a - both.local_x_b)
-    i = int(np.argmin(dist.to_numpy()))
-    return int(both.frame_id.iloc[i]), float(dist.iloc[i])
+    return pd.Series(np.hypot(both.local_y_a - both.local_y_b,
+                              both.local_x_a - both.local_x_b).to_numpy(),
+                     index=both.frame_id.to_numpy())
+
+
+def closest_frame(df, a, b):
+    """(frame, distance) of the pair's minimum true separation over shared frames."""
+    dist = pair_distance(df, a, b)
+    return int(dist.idxmin()), float(dist.min())
+
+
+def n_windows(df, target, t_star):
+    """How many of the target's windows in [t* - BEFORE, t* + AFTER] exist."""
+    span = np.arange(t_star - BEFORE - TH_STEPS + 1, t_star + AFTER + TF_STEPS + 1)
+    present = np.isin(span, df.frame_id[df.vehicle_id == target].to_numpy()).astype(int)
+    full = np.convolve(present, np.ones(TH_STEPS + TF_STEPS, dtype=int), "valid")
+    return int((full == TH_STEPS + TF_STEPS).sum())
+
+
+def check_candidate(df, pair, prefer=None):
+    """Candidate dict for the better target role, with `reason` set if it fails."""
+    a, b = pair
+    dist = pair_distance(df, a, b)
+    t_star, min_dist = int(dist.idxmin()), float(dist.min())
+    before = float(dist.get(t_star - 50, np.nan))
+    roles = [(a, b), (b, a)]
+    if prefer in pair:
+        roles = [r for r in roles if r[0] == prefer]
+    target, neighbour = max(roles, key=lambda r: n_windows(df, r[0], t_star))
+    out = {"target": int(target), "neighbour": int(neighbour), "t_star_frame": t_star,
+           "min_dist": min_dist, "dist_5s_before": before,
+           "n_windows": n_windows(df, target, t_star), "reason": None}
+    if not before >= APPROACH_DIST:
+        out["reason"] = f"no approach: {before:.1f} m apart 5 s before"
+    elif out["n_windows"] < MIN_WINDOWS:
+        out["reason"] = f"track too short: {out['n_windows']} windows"
+    return out
+
+
+def resolve_cases(df, cases):
+    """First passing candidate per case; collision and missed share a vehicle if possible."""
+    lists = cases["candidates"]
+    ids = {v for entries in lists.values() for e in entries for v in e["pair"]}
+    df = df[df.vehicle_id.isin(ids)]
+    log = {case: {} for case in lists}
+
+    def passing(case, keep=lambda e: True, prefer=None):
+        for entry in lists[case]:
+            if not keep(entry):
+                continue
+            result = {**entry, **check_candidate(df, entry["pair"], prefer)}
+            if result["reason"] is None:
+                yield result
+            else:
+                log[case][entry["event"]] = {"pair": entry["pair"], "reason": result["reason"]}
+
+    missed = list(passing("missed", lambda e: e["mean_placement"] < MISSED))
+    detected = list(passing("collision", lambda e: e["mean_placement"] >= DETECTED))
+    if not missed or not detected:
+        raise ValueError("no passing collision / missed candidate; raise CANDIDATES")
+    pick = next(((m, c) for m in missed for c in detected
+                 if set(m["pair"]) & set(c["pair"])), (missed[0], detected[0]))
+    shared = set(pick[0]["pair"]) & set(pick[1]["pair"])
+    vehicle = shared.pop() if shared else pick[1]["target"]
+    chosen = {}
+    for case, entry in (("collision", pick[1]), ("missed", pick[0])):
+        redo = list(passing(case, lambda e, k=entry["event"]: e["event"] == k, vehicle))
+        chosen[case] = redo[0] if redo else entry
+    near = (list(passing("near_miss", lambda e: vehicle in e["pair"], vehicle))
+            or list(passing("near_miss")))
+    if not near:
+        raise ValueError("no passing near-miss candidate; raise CANDIDATES")
+    chosen["near_miss"] = near[0]
+    for case, entry in chosen.items():
+        entry.pop("placement_by_model", None)
+        entry.pop("reason", None)
+        entry["rejected"] = [
+            {"event": k, **v} for k, v in log[case].items()][:CANDIDATES]
+    return vehicle, chosen
 
 
 def window_scenes(df, target, t_star, loader_kwargs=None):
@@ -205,18 +282,17 @@ def score(args):
         stats = {"mean": torch.zeros(STATE_DIM), "std": torch.ones(STATE_DIM)}
 
     args.out.mkdir(parents=True, exist_ok=True)
-    scores, truth, windows = [], [], {}
-    for case in ("collision", "missed", "near_miss"):
-        target, neighbour = cases[case]["target"], cases[case]["neighbour"]
-        t_star, min_dist = closest_frame(full, target, neighbour)
+    vehicle, windows = resolve_cases(full, cases)
+    scores, truth = [], []
+    for case, info in windows.items():
+        target, neighbour, t_star = info["target"], info["neighbour"], info["t_star_frame"]
         loader, scenes = window_scenes(full, target, t_star)
         row = full.loc[full.vehicle_id == target].iloc[0]
-        windows[case] = {"target": target, "neighbour": neighbour, "t_star_frame": t_star,
-                         "min_dist": min_dist, "n_windows": len(scenes),
-                         "location": str(row["location"]),
-                         "orig_vehicle_id": int(row.get("orig_vehicle_id", target))}
-        print(f"{case}: {target} vs {neighbour}, t*={t_star}, min {min_dist:.2f} m, "
-              f"{len(scenes)} windows", flush=True)
+        info.update(vehicle=vehicle, n_windows=len(scenes), location=str(row["location"]),
+                    orig_vehicle_id=int(row.get("orig_vehicle_id", target)))
+        print(f"{case}: {target} vs {neighbour}, t*={t_star}, min {info['min_dist']:.2f} m, "
+              f"placement {info['mean_placement']:.3f}, {len(scenes)} windows, "
+              f"{len(info['rejected'])} rejected", flush=True)
         seen = set()
         for name in args.models:
             model, namespace = load_notebook_model(

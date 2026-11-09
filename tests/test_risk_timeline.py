@@ -4,7 +4,8 @@ import pandas as pd
 import torch
 
 from experiments.plot_risk_timeline import (
-    AFTER, BEFORE, closest_frame, score_windows, true_distances, window_scenes,
+    AFTER, BEFORE, check_candidate, closest_frame, score_windows, true_distances,
+    window_scenes,
 )
 from src.config import TF_STEPS, TH_STEPS
 from tests.test_risk_scoring import _ZeroPredictor
@@ -22,6 +23,11 @@ def test_timeline_follows_a_closing_pair():
     df = pd.DataFrame(rows)
     t_star, min_dist = closest_frame(df, 1, 2)
     assert t_star == 150 and np.isclose(min_dist, 0.5)
+    passed = check_candidate(df, (2, 1), prefer=1)
+    assert passed["reason"] is None and passed["target"] == 1 and passed["n_windows"] == 91
+    # A duplicate track glued 0.2 m from vehicle 1 never "approaches".
+    ghost = df[df.vehicle_id == 1].assign(vehicle_id=3, local_x=3.8)
+    assert check_candidate(pd.concat([df, ghost]), (1, 3))["reason"].startswith("no approach")
 
     loader, scenes = window_scenes(df, 1, t_star, dict(
         window_frames=TH_STEPS + TF_STEPS, history_frames=TH_STEPS, future_frames=TF_STEPS))
