@@ -44,6 +44,13 @@ T_SAFETY = 1.5         # s, safety time headway for DST
 RHO_VEHICLE = 200.0    # kg/m^2 of footprint; 4.5 x 1.8 m -> 1620 kg
 MC_SAMPLES = 64        # Monte-Carlo draws for p_coll_mc
 MC_CHUNK = 16          # draws per chunk, to bound peak memory
+# Collision Risk Index (Su et al., Electronics 2025). The paper leaves the
+# Monte-Carlo size, the CRI weights and the Eq. 35 time weights unspecified.
+# ponytail: equal weights and uniform time weighting; expose as knobs if tuned.
+CRI_SAMPLES = 1000     # Monte-Carlo draws per step
+CRI_CHUNK = 50         # draws per chunk
+CRI_ALPHA_MEAN = 0.5   # alpha_1 on the horizon-mean risk
+CRI_ALPHA_MAX = 0.5    # alpha_2 on the horizon-max risk
 GAMMA_CI = 1.0         # 1/s, conflict-index calibration (country/geometry dependent)
 DELTA_CI = 1.0         # fraction of kinetic energy reaching occupants
 JOKSCH_V = 31.74       # m/s, Joksch fatality-probability scale
@@ -490,6 +497,115 @@ def p_coll_mc(target, neighbors, dt=DT, threshold=2.0, **ctx):
 
 
 # --------------------------------------------------------------------------- #
+#  A2/A4 -- Collision Risk Index (Su, Wang & Wang, Electronics 2025)
+# --------------------------------------------------------------------------- #
+def _circle_probability(rel, sx, sy, rho, radius):
+    """P(|rel + noise| <= radius), noise ~ N(0, [[sx^2, r sx sy], [r sx sy, sy^2]]).
+
+    Monte Carlo with one fixed set of CRI_SAMPLES draws shared by every element
+    (common random numbers, as in p_coll_mc). NaN positions never count as hits.
+    """
+    gen = torch.Generator(device="cpu").manual_seed(0)
+    eps = torch.randn(CRI_SAMPLES, 2, generator=gen, dtype=rel.dtype).to(rel.device)
+    r = rho.clamp(-0.999, 0.999)
+    r_c = (1 - r * r).clamp(min=0).sqrt()
+    hits = torch.zeros(rel.shape[:-1], dtype=rel.dtype, device=rel.device)
+    r2 = (radius * radius).unsqueeze(-1)
+    for chunk in eps.split(CRI_CHUNK):
+        e0, e1 = chunk[:, 0], chunk[:, 1]
+        dx = rel[..., 0:1] + sx.unsqueeze(-1) * e0
+        dy = rel[..., 1:2] + sy.unsqueeze(-1) * (r.unsqueeze(-1) * e0 + r_c.unsqueeze(-1) * e1)
+        hits = hits + (dx * dx + dy * dy <= r2).sum(-1)
+    return hits / CRI_SAMPLES
+
+
+def _speed_vectors(positions, dt):
+    """Backward-difference velocity along dim 1, step 0 copied from step 1."""
+    vel = torch.zeros_like(positions)
+    if positions.shape[1] > 1:
+        vel[:, 1:] = (positions[:, 1:] - positions[:, :-1]) / dt
+        vel[:, 0] = vel[:, 1]
+    return vel
+
+
+def cri_steps(mu_i, sig_i, rho_i, mu_j, sig_j, rho_j, radius, dt=DT, fixed=False):
+    """Per-step pair risk F = P * E of the paper's Eqs. 26-32, time on dim 1.
+
+    mu_* (B,T,N,2) broadcastable, sig_* (...,2), rho_* (...), radius (Eq. 30)
+    broadcastable to (B,T,N). Returns (F, P, E), each (B,T,N), NaN -> 0 in F.
+
+    fixed=False is the paper as printed: the relative position's std is
+    sig_i + sig_j and its correlation rho_i + rho_j (Eq. 29), and the intensity
+    exp(-arctan|v_i - v_j|) of scalar speeds *falls* as they diverge (Eq. 32).
+    fixed=True adds covariances and uses (2/pi) * arctan|v_i - v_j| of the
+    velocity vectors, which rises with the relative speed.
+    """
+    rel = mu_i - mu_j
+    if fixed:
+        var = sig_i.square() + sig_j.square()
+        cov = rho_i * sig_i[..., 0] * sig_i[..., 1] + rho_j * sig_j[..., 0] * sig_j[..., 1]
+        sx, sy = var[..., 0].sqrt(), var[..., 1].sqrt()
+        rho = cov / (sx * sy).clamp(min=EPS)
+    else:
+        sx, sy = sig_i[..., 0] + sig_j[..., 0], sig_i[..., 1] + sig_j[..., 1]
+        rho = rho_i + rho_j     # may leave (-1, 1); clamped in _circle_probability
+    rel, sx, sy, rho = torch.broadcast_tensors(rel, sx.unsqueeze(-1), sy.unsqueeze(-1),
+                                               rho.unsqueeze(-1))
+    sx, sy, rho = sx[..., 0], sy[..., 0], rho[..., 0]
+    p = _circle_probability(rel, sx.clamp(min=EPS), sy.clamp(min=EPS), rho,
+                            radius.expand(rel.shape[:-1]))
+
+    v_i, v_j = _speed_vectors(mu_i, dt), _speed_vectors(mu_j, dt)
+    if fixed:
+        e = (2 / math.pi) * torch.atan(torch.linalg.vector_norm(v_i - v_j, dim=-1))
+    else:
+        e = torch.exp(-torch.atan((v_i.norm(dim=-1) - v_j.norm(dim=-1)).abs()))
+    f = (p * e).nan_to_num(0.0)
+    return f, p, e.expand_as(f)
+
+
+def cri_fuse(f):
+    """CRI over the horizon (Eq. 36): alpha_1 * mean_t F + alpha_2 * max_t F."""
+    return CRI_ALPHA_MEAN * f.mean(dim=1) + CRI_ALPHA_MAX * f.max(dim=1).values
+
+
+def cri_aggregate(f, p):
+    """Multi-vehicle risk per step (Eqs. 33-34): neighbours weighted by P / sum P.
+
+    f, p (B,T,N) -> (B,T); 0 where every neighbour has P = 0.
+    """
+    return (p * f).sum(-1) / p.sum(-1).clamp(min=EPS)
+
+
+def collision_radius(ego_dims, other_dims):
+    """Eq. 30: half the diagonal of the summed footprints, (B, N)."""
+    total = ego_dims.unsqueeze(1) + other_dims
+    return 0.5 * torch.linalg.vector_norm(total, dim=-1)
+
+
+def _cri_pair(target, neighbors, dt, ctx, fixed):
+    """Pairwise CRI with deterministic neighbours (sigma_j = 0), shape (B, N)."""
+    sigma, rho, ego_dims, other_dims, _ = _context(target, neighbors, dt, ctx)
+    zeros = torch.zeros_like(neighbors)
+    f, _, _ = cri_steps(
+        target.unsqueeze(2), sigma.unsqueeze(2), rho.unsqueeze(2),
+        neighbors, zeros, zeros[..., 0],
+        collision_radius(ego_dims, other_dims).unsqueeze(1), dt, fixed,
+    )
+    return cri_fuse(f)
+
+
+def cri_paper(target, neighbors, dt=DT, threshold=2.0, **ctx):
+    """Collision Risk Index exactly as printed (Eqs. 29 and 32 included)."""
+    return _cri_pair(target, neighbors, dt, ctx, fixed=False)
+
+
+def cri_fixed(target, neighbors, dt=DT, threshold=2.0, **ctx):
+    """Collision Risk Index with covariances added and a rising intensity."""
+    return _cri_pair(target, neighbors, dt, ctx, fixed=True)
+
+
+# --------------------------------------------------------------------------- #
 #  A3 -- calibrated risk fields (the [22] calibration, via src.risk.pair_risk)
 # --------------------------------------------------------------------------- #
 def _pair_fields(target, neighbors, dt, ctx):
@@ -660,6 +776,8 @@ METRICS = {
     "delta_v": (delta_v, True, 5.0),
     "conflict_index": (conflict_index, True, 1e4),
     "p_pdrf": (p_pdrf, True, 1e-4),
+    "cri_paper": (cri_paper, True, 0.05),
+    "cri_fixed": (cri_fixed, True, 0.05),
     # A6 -- formal
     "rss_ds": (rss_ds, True, 0.5),
     "rss_margin": (rss_margin, True, 0.0),
@@ -679,7 +797,8 @@ SCALE_CONSTANTS = {
     "RHO_VEHICLE": RHO_VEHICLE, "MC_SAMPLES": MC_SAMPLES, "GAMMA_CI": GAMMA_CI,
     "DELTA_CI": DELTA_CI, "JOKSCH_V": JOKSCH_V, "RSS_RHO": RSS_RHO,
     "RSS_A_MAX": RSS_A_MAX, "RSS_B_MIN": RSS_B_MIN, "RSS_B_MAX": RSS_B_MAX,
-    "RSS_MU_LAT": RSS_MU_LAT,
+    "RSS_MU_LAT": RSS_MU_LAT, "CRI_SAMPLES": CRI_SAMPLES,
+    "CRI_ALPHA_MEAN": CRI_ALPHA_MEAN, "CRI_ALPHA_MAX": CRI_ALPHA_MAX,
 }
 
 
