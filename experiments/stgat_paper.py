@@ -317,10 +317,27 @@ def horizon_rmse(mu, gt):
     return r
 
 
+def calibration(pred, gt):
+    """Mean predicted sigma and 95 % ellipse coverage of the truth at 1..5 s.
+
+    A calibrated Gaussian covers the truth 95 % of the time; far less means
+    the sigma is overconfident, which drives every probability towards 0/1."""
+    sx, sy, r = pred[..., 2], pred[..., 3], pred[..., 4].clamp(-0.999, 0.999)
+    dx, dy = (gt[..., 0] - pred[..., 0]) / sx, (gt[..., 1] - pred[..., 1]) / sy
+    m2 = (dx * dx + dy * dy - 2 * r * dx * dy) / (1 - r * r)
+    out = {}
+    for i, h in enumerate(HORIZONS):
+        out[f"sigma_x_{i + 1}s"] = sx[:, h].mean().item()
+        out[f"sigma_y_{i + 1}s"] = sy[:, h].mean().item()
+        out[f"cover95_{i + 1}s"] = (m2[:, h] <= 5.991).float().mean().item()
+    return out
+
+
 def scores_for(pred, gt, mask, meta, idx):
     """Main-vehicle, all-vehicle and per-class metrics of one prediction."""
     main = {**horizon_rmse(pred[:, 0, :, :2], gt[:, 0]),
-            "nll": nll_all(pred[:, :1], gt[:, :1], mask[:, :1]).item(), "n": len(idx)}
+            "nll": nll_all(pred[:, :1], gt[:, :1], mask[:, :1]).item(), "n": len(idx),
+            **calibration(pred[:, 0], gt[:, 0])}
     real = mask.reshape(-1)
     flat_p = pred.reshape(-1, TF, 5)[real]
     every = {**horizon_rmse(flat_p[..., :2], gt.reshape(-1, TF, 2)[real]),
@@ -656,7 +673,8 @@ def plot_case(path, frame, pick, summary):
     right = bot.twinx()
     right.plot(frame.t, frame.thw_s.replace(np.inf, np.nan), color="C2", label="THW (s)")
     right.plot(frame.t, frame.lcttc_s.replace(np.inf, np.nan), color="C4", label="LCTTC (s)")
-    right.set_ylabel("THW, LCTTC (s)")
+    right.set_ylabel("THW, LCTTC (s, clipped at 10)")
+    right.set_ylim(0, 10)
     for ax in (top, bot):
         ax.axvline(0, color="k", lw=0.6, ls=":")
         for name, p in summary["peaks"].items():
