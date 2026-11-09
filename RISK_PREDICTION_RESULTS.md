@@ -20,7 +20,7 @@ The 39-model benchmark in [experiments/comparison_rmse.csv](experiments/comparis
 batch ran with `--no-collisions`. No risk prediction had ever been scored in this project.
 
 That gap matters more than it looks. The ten best models span
-**2.0716 → 2.1300 m average RMSE — a 5.8 % spread**, which
+**2.0716 → 2.1300 m average RMSE — a 2.8 % spread (0.058 m)**, which
 [experiments/MODEL_ALTERNATIVES.md](experiments/MODEL_ALTERNATIVES.md) itself describes as within
 noise for numbers copied between papers. Displacement error cannot rank these models. The
 methodology doc's §B7 gives the reason: in a closed-loop study, static ADE showed *no significant
@@ -355,7 +355,7 @@ and is not comparable with dashcam TTA figures.
 
 **Why stratification matters most.** STRAP's own Table II shows STRAP-B and STRAP-R with an
 *identical* 1.78 m average RMSE, separating only once stratified by how imminent the collision
-is. With a 5.8 % spread across these ten models, the stratified view is the one with a real
+is. With a 2.8 % spread across these ten models, the stratified view is the one with a real
 chance of ranking them.
 
 ---
