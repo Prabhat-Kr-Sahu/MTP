@@ -26,7 +26,7 @@ from matplotlib.colors import LinearSegmentedColormap  # noqa: E402
 from matplotlib.patches import Circle, Rectangle  # noqa: E402
 
 from experiments.plot_risk_timeline import (  # noqa: E402
-    AFTER, BASELINES, BEFORE, FIGURES, LABEL_DIST, MODELS, OUT, TITLES, case_rows,
+    AFTER, BEFORE, FIGURES, LABEL_DIST, OUT, SELECTION_MODELS, TITLES, case_rows,
 )
 from src.config import DT  # noqa: E402
 
@@ -39,7 +39,13 @@ CASES = ("collision", "missed", "near_miss", "safe", "false_alarm")
 SHORT = {"collision": "Collision (detected)", "missed": "Collision (missed)",
          "near_miss": "Near miss", "safe": "No collision (safe)", "false_alarm": "False alarm"}
 GRID_T = np.round(np.arange(-BEFORE, AFTER + 1) * DT, 1)
+# The document's figures stay on the 15 models the cases were chosen from;
+# STGAT-EDGRU gets its own figure (fig_stgat) so the 15-model medians never move.
+MODELS = SELECTION_MODELS
+BASELINES = tuple(m for m in MODELS if not m.endswith("_tuned"))
 TUNED = tuple(m for m in MODELS if m.endswith("_tuned"))
+STGAT = ("stgat_edgru", "stgat_edgru_tuned")
+STGAT_C = "#7a4fc9"
 
 
 def _style(ax, zero=True):
@@ -94,10 +100,13 @@ def summary(scores, cases):
             for model, r in pair.groupby("model"):
                 r = r.set_index("t").p_coll_gauss
                 hit = r[r >= 0.1]
+                full = pair[pair.model == model]
                 rows.append({"case": case, "source": source, "model": model,
                              "coverage": len(r) / windows, "peak": r.max(),
                              "t_peak": r.idxmax(), "first_ge_0.1": hit.index.min() if len(hit) else np.nan,
-                             "p_at_0": r.get(0.0, np.nan)})
+                             "p_at_0": r.get(0.0, np.nan),
+                             **{f"{m}_peak": full[m].max() for m in ("cri_paper", "cri_fixed")
+                                if m in full}})
     out = pd.DataFrame(rows)
     out.to_csv(OUT / "summary.csv", index=False, float_format="%.4f")
     return out
@@ -159,8 +168,6 @@ METRIC_ROWS = (  # name, axis label, riskier direction
     ("min_dist", "min_dist\nm", "down"),
     ("ttc_true", "ttc_true, s\ngap = no contact\nclipped at 5 s", "down"),
     ("tet", "tet\ns below 2 m", "up"),
-    ("cri_paper", "cri_paper\nas printed", "up"),
-    ("cri_fixed", "cri_fixed\nfixed", "up"),
 )
 
 
@@ -219,6 +226,69 @@ def fig_metrics(scores, truth, cases, source):
     fig.suptitle(f"Six risk measures over time, vehicle 1102724, source {source}",
                  x=0.07, y=0.915, ha="left", fontsize=12, color=INK)
     _save(fig, f"metrics_{source}")
+
+
+STGAT_ROWS = (("p_coll_gauss", "p_coll_gauss\nprobability"),
+              ("cri_paper", "cri_paper\nas printed"),
+              ("cri_fixed", "cri_fixed\nfixed Eqs. 29, 32"))
+
+
+def fig_stgat(scores, truth, cases, source):
+    """STGAT-EDGRU (and its tuned version) against the 15-model median and IQR,
+    for p_coll_gauss and both CRIs, five cases."""
+    fig, axes = plt.subplots(len(STGAT_ROWS) + 1, 5, figsize=(17, 8.6), facecolor=SURFACE,
+                             sharex=True, gridspec_kw={"hspace": 0.18, "wspace": 0.1})
+    present = [m for m in STGAT if m in set(scores.model)]
+    for i, (metric, label) in enumerate(STGAT_ROWS):
+        top = 0.0
+        for j, case in enumerate(CASES):
+            ax = axes[i, j]
+            _style(ax)
+            rows = _pair(scores, case, cases[case], source)
+            if rows.empty:
+                ax.text(0.5, 0.5, "never scored", transform=ax.transAxes, ha="center",
+                        va="center", fontsize=8, color=MUTED)
+            else:
+                wide = rows.pivot_table(index="model", columns="t", values=metric).reindex(
+                    index=list(MODELS) + present, columns=GRID_T)
+                q1, med, q3 = (wide.loc[list(MODELS)].quantile(q) for q in (0.25, 0.5, 0.75))
+                ax.fill_between(GRID_T, q1, q3, color=MUTED, alpha=0.2, linewidth=0)
+                ax.plot(GRID_T, med, color=MUTED, linewidth=1.6)
+                for m in present:
+                    ax.plot(GRID_T, wide.loc[m], color=STGAT_C, linewidth=1.8,
+                            linestyle="--" if m.endswith("_tuned") else "-")
+                if wide.notna().any().any():
+                    top = max(top, float(np.nanmax(wide.to_numpy())))
+            if i == 0:
+                ax.set_title(SHORT[case], fontsize=10, color=INK, loc="left")
+            if j:
+                ax.tick_params(labelleft=False)
+        for ax in axes[i]:
+            ax.set_ylim(0, top * 1.08 if top > 0 else 1)
+        axes[i, 0].set_ylabel(f"{label}\n↑ riskier", color=INK_2, fontsize=8)
+    for j, case in enumerate(CASES):
+        info = cases[case]
+        ax = axes[-1, j]
+        _style(ax)
+        d = truth[(truth.case == info.get("from_window", case))
+                  & (truth.neighbour == info["neighbour"])].sort_values("t")
+        ax.plot(d.t, d.dist, color=INK, linewidth=1.6)
+        ax.axhline(LABEL_DIST, color=INK_2, linewidth=0.9, linestyle="--")
+        ax.set_ylim(0, 60)
+        ax.set_xlabel("time (s)", color=INK_2, fontsize=9)
+        if j:
+            ax.tick_params(labelleft=False)
+    axes[-1, 0].set_ylabel("true distance\nm", color=INK_2, fontsize=8)
+    handles = [plt.Line2D([], [], color=MUTED, linewidth=2,
+                          label="15 study models: median, IQR band")]
+    handles += [plt.Line2D([], [], color=STGAT_C, linewidth=2,
+                           linestyle="--" if m.endswith("_tuned") else "-", label=m)
+                for m in present]
+    fig.legend(handles=handles, loc="upper right", frameon=False, fontsize=9,
+               ncol=len(handles), bbox_to_anchor=(0.99, 0.935), labelcolor=INK_2)
+    fig.suptitle(f"STGAT-EDGRU and the CRI over time, vehicle 1102724, source {source}",
+                 x=0.07, y=0.935, ha="left", fontsize=12, color=INK)
+    _save(fig, f"stgat_{source}")
 
 
 def fig_heatmap(scores, cases):
@@ -408,7 +478,11 @@ def main():
     tracks = pd.read_csv(OUT / "tracks.csv")
     cases = json.loads((OUT / "plotted_cases.json").read_text(encoding="utf-8"))
     FIGURES.mkdir(parents=True, exist_ok=True)
-    table = summary(scores, cases)
+    table = summary(scores, cases)              # every model, incl. STGAT
+    for source in ("cv", "pred"):
+        if set(STGAT) & set(scores.model):
+            fig_stgat(scores, truth, cases, source)
+    scores = scores[scores.model.isin(MODELS)]  # the document's 15
     fig_overview(scores, truth, cases)
     fig_heatmap(scores, cases)
     fig_coverage(scores, cases)
@@ -417,8 +491,8 @@ def main():
     fig_geometry(tracks, cases)
     for source in ("cv", "pred"):
         fig_metrics(scores, truth, cases, source)
-    print(table.groupby(["case", "source"])[["coverage", "peak", "first_ge_0.1", "p_at_0"]]
-          .median().round(3).to_string())
+    print(table[table.model.isin(MODELS)].groupby(["case", "source"])[
+        ["coverage", "peak", "first_ge_0.1", "p_at_0"]].median().round(3).to_string())
     return 0
 
 

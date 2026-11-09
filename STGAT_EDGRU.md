@@ -463,6 +463,18 @@ Per-case figures: `experiments/results/stgat_paper/risk_timeline_paper_case_<ind
 candidate list is in `cases.json`, the scores in `case_scores_<index>.csv`, and the leads in
 `case_leads.csv`.
 
+### 7.1 The repo's five encounters (R)
+
+The R model and both CRIs were also scored on the five encounters of
+[RISK_TIMELINE.md](RISK_TIMELINE.md) (motorcycle 1102724). Details are in §13 there.
+- Under `cv`, STGAT-EDGRU gives the false alarm the lowest `p_coll_gauss` of all 16 models
+  (0.022). Under `pred` it gives it the highest (0.727).
+- In every model, both CRIs score the three real events above the false alarm. `p_coll_gauss`
+  does that in 3 of 16. But `cri_fixed` saturates at about 0.5 on all three events, so it ranks
+  "close encounter vs not", not "collision vs near miss".
+
+![STGAT-EDGRU and the CRI on the five encounters, cv](experiments/figures/risk_timeline_doc_stgat_cv.png)
+
 ---
 
 ## 8. Caveats

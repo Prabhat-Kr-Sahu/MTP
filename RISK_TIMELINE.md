@@ -48,6 +48,13 @@ five different neighbours.
     laterally.
   - At that offset the vehicles' boxes never touch, so box-overlap risk peaks 1–4 s
     *before* the pass, while the predicted paths still converge (§4).
+- **Added later: STGAT-EDGRU and its Collision Risk Index (§13, [STGAT_EDGRU.md](STGAT_EDGRU.md)).**
+  - Under `cv` it gives the false alarm the lowest value of any model (0.022). Under `pred`
+    it gives it the highest (0.727).
+  - The CRI (paper and fixed versions) scores all three events above the false alarm in
+    every model under `cv`, which `p_coll_gauss` does in 3 of 16. But it saturates near
+    0.5 on all three events, so it cannot tell a collision from a near miss.
+  - The 15-model results above are unchanged.
 
 ---
 
@@ -577,3 +584,71 @@ python experiments/risk_timeline_figures.py
 | code | [`plot_risk_timeline.py`](experiments/plot_risk_timeline.py), [`risk_timeline_figures.py`](experiments/risk_timeline_figures.py) |
 | test | [`tests/test_risk_timeline.py`](tests/test_risk_timeline.py) |
 | run log | `experiments/runs/risk_timeline.out` |
+
+---
+
+## 13. STGAT-EDGRU and the Collision Risk Index on the five encounters
+
+Added after the study: the STGAT-EDGRU model of Su et al. (Electronics 2025) and its Collision
+Risk Index (CRI), in two versions: `cri_paper` exactly as printed, and `cri_fixed` with the
+paper's variance (Eq. 29) and intensity (Eq. 32) errors corrected. Model, CRI definition and
+aggregate results are in [STGAT_EDGRU.md](STGAT_EDGRU.md).
+
+The five cases are unchanged:
+- They were chosen from the original 15 models (`SELECTION_MODELS` in
+  `plot_risk_timeline.py`), so adding a model cannot move them.
+- Rescoring with the CRI columns reproduced every one of the 15 models' 93,480 existing
+  values exactly.
+- Every figure and table in §§1–12 is still drawn from those 15 models only.
+
+![STGAT-EDGRU and the CRI, cv](experiments/figures/risk_timeline_doc_stgat_cv.png)
+
+![STGAT-EDGRU and the CRI, pred](experiments/figures/risk_timeline_doc_stgat_pred.png)
+
+*Grey: median and IQR band of the 15 study models. Purple: STGAT-EDGRU. Rows: `p_coll_gauss`,
+the two CRIs, true distance.*
+
+**Peak values per case**, STGAT-EDGRU against the 15 study models (median [range]):
+
+| case | source | `p_coll_gauss` STGAT | `p_coll_gauss` 15 models | `cri_paper` STGAT | `cri_paper` 15 models | `cri_fixed` STGAT | `cri_fixed` 15 models |
+|---|---|---|---|---|---|---|---|
+| collision (detected) | cv | 0.240 | 0.187 [0.113, 0.467] | 0.136 | 0.256 [0.142, 0.434] | 0.516 | 0.514 [0.505, 0.550] |
+| | pred | 0.268 | 0.231 [0.145, 0.621] | 0.332 | 0.487 [0.137, 0.759] | 0.514 | 0.512 [0.354, 0.562] |
+| collision (missed) | cv | 0.069 | 0.069 [0.044, 0.188] | 0.240 | 0.253 [0.203, 0.585] | 0.507 | 0.518 [0.484, 0.528] |
+| | pred | 0.054 | 0.119 [0.030, 0.386] | 0.161 | 0.493 [0.140, 0.644] | 0.521 | 0.503 [0.310, 0.580] |
+| near miss | cv | 0.095 | 0.178 [0.079, 0.298] | 0.147 | 0.218 [0.154, 0.475] | 0.526 | 0.528 [0.519, 0.549] |
+| | pred | 0.123 | 0.150 [0.068, 0.909] | 0.276 | 0.558 [0.190, 0.761] | 0.503 | 0.532 [0.351, 0.589] |
+| no collision (safe) | cv | 0.000 | 0.000 | 0.000 | 0.000 | 0.000 | 0.000 |
+| false alarm | cv | **0.022** | 0.217 [0.027, 0.296] | 0.016 | 0.077 [0.025, 0.113] | 0.013 | 0.169 [0.010, 0.251] |
+| | pred | **0.727** | 0.278 [0.006, 0.571] | 0.151 | 0.151 [0.002, 0.390] | 0.522 | 0.225 [0.003, 0.496] |
+
+What this adds:
+1. **STGAT-EDGRU is the extreme case of §7's split between sources.**
+   - Under `cv` it gives the false alarm 0.022, the lowest of all 16 models, while flagging
+     the collision at 0.240.
+   - Under `pred` it gives the false alarm **0.727**, the highest of all 16 (x_track_tuned had
+     0.571), from −8 s. It predicts the following car into the motorcycle.
+   - This is its aggregate result on one vehicle: mid-table under `cv`, 15th of 16 under
+     `pred` (STGAT_EDGRU.md §5).
+2. **Under `cv`, the CRI never confuses the false alarm with an event, for any model.**
+   - In all 16 models, both CRIs score each of the three events above the false alarm.
+     `cri_fixed` peaks at 0.48–0.55 on every event, and at most 0.25 on the false alarm.
+   - `p_coll_gauss` manages this in only 3 of 16 models (STGAT-EDGRU, x_track_tuned and
+     stdan_tuned). It scored the false alarm at least as high as the collision in 10 of 15
+     (§7).
+   - Two parts of the CRI do this. It averages over the horizon (α1 · mean + α2 · max), so a
+     risk that exists only in the widened 5 s tail counts less. And `cri_fixed`'s intensity
+     is near zero for a car at the motorcycle's own speed.
+3. **But the CRI cannot tell the three events apart.**
+   - `cri_fixed` sits at 0.50–0.53 for the detected collision, the missed collision and the
+     near miss alike.
+   - Once the predicted centres stay inside the Eq. 30 circle (2.8–3.4 m for this
+     motorcycle and these cars), P = 1, and the score is just the intensity profile.
+   - It separates "close encounter" from "not", not "collision" from "near miss".
+4. **Under `pred` the CRI's advantage shrinks.** The false-alarm range reaches 0.39
+   (`cri_paper`) and 0.50 (`cri_fixed`), as high as the events. When the model predicts the
+   following car into the motorcycle, every measure follows it.
+
+Reproduce: `plot_risk_timeline.py --score` on the box (all models, or `--models stgat_edgru`
+with the existing CSVs), then `risk_timeline_figures.py` locally. The per-model peaks,
+including `cri_paper_peak`/`cri_fixed_peak`, are in `summary.csv`.
