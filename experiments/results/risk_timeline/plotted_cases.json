@@ -1,0 +1,612 @@
+{
+  "collision": {
+    "pair": [
+      1102706,
+      1102724
+    ],
+    "event": 110270601102724,
+    "mean_placement": 0.9091580837965012,
+    "target": 1102724,
+    "neighbour": 1102706,
+    "t_star_frame": 8124,
+    "min_dist": 1.66605054549763,
+    "dist_5s_before": 31.922323263600845,
+    "n_windows": 91,
+    "rejected": [
+      {
+        "event": 220261602202661,
+        "pair": [
+          2202616,
+          2202661
+        ],
+        "reason": "no approach: 0.5 m apart 5 s before"
+      },
+      {
+        "event": 230236202302370,
+        "pair": [
+          2302362,
+          2302370
+        ],
+        "reason": "no approach: 9.8 m apart 5 s before"
+      },
+      {
+        "event": 220248602202491,
+        "pair": [
+          2202486,
+          2202491
+        ],
+        "reason": "no approach: 0.6 m apart 5 s before"
+      },
+      {
+        "event": 220282902202837,
+        "pair": [
+          2202829,
+          2202837
+        ],
+        "reason": "no approach: 5.5 m apart 5 s before"
+      },
+      {
+        "event": 220258602202614,
+        "pair": [
+          2202586,
+          2202614
+        ],
+        "reason": "no approach: nan m apart 5 s before"
+      },
+      {
+        "event": 220281602202829,
+        "pair": [
+          2202816,
+          2202829
+        ],
+        "reason": "no approach: 4.0 m apart 5 s before"
+      },
+      {
+        "event": 110287001102873,
+        "pair": [
+          1102870,
+          1102873
+        ],
+        "reason": "no approach: 4.1 m apart 5 s before"
+      },
+      {
+        "event": 130191201301917,
+        "pair": [
+          1301912,
+          1301917
+        ],
+        "reason": "no approach: 8.2 m apart 5 s before"
+      },
+      {
+        "event": 110268601102691,
+        "pair": [
+          1102686,
+          1102691
+        ],
+        "reason": "no approach: 5.9 m apart 5 s before"
+      },
+      {
+        "event": 210302202103035,
+        "pair": [
+          2103022,
+          2103035
+        ],
+        "reason": "no approach: 6.9 m apart 5 s before"
+      },
+      {
+        "event": 220255502202585,
+        "pair": [
+          2202555,
+          2202585
+        ],
+        "reason": "no approach: 8.4 m apart 5 s before"
+      },
+      {
+        "event": 110255201102613,
+        "pair": [
+          1102552,
+          1102613
+        ],
+        "reason": "no approach: 6.5 m apart 5 s before"
+      },
+      {
+        "event": 110287101102877,
+        "pair": [
+          1102871,
+          1102877
+        ],
+        "reason": "no approach: 6.8 m apart 5 s before"
+      },
+      {
+        "event": 120252401202548,
+        "pair": [
+          1202524,
+          1202548
+        ],
+        "reason": "implausible closing: 46.4 m in 5 s"
+      },
+      {
+        "event": 230220202302263,
+        "pair": [
+          2302202,
+          2302263
+        ],
+        "reason": "no approach: 7.4 m apart 5 s before"
+      },
+      {
+        "event": 110287101102876,
+        "pair": [
+          1102871,
+          1102876
+        ],
+        "reason": "no approach: 7.9 m apart 5 s before"
+      },
+      {
+        "event": 230223602302263,
+        "pair": [
+          2302236,
+          2302263
+        ],
+        "reason": "no approach: 8.7 m apart 5 s before"
+      }
+    ],
+    "vehicle": 1102724,
+    "location": "us-101",
+    "orig_vehicle_id": 2724
+  },
+  "missed": {
+    "pair": [
+      1102714,
+      1102724
+    ],
+    "event": 110271401102724,
+    "mean_placement": 0.695484126607577,
+    "target": 1102724,
+    "neighbour": 1102714,
+    "t_star_frame": 8084,
+    "min_dist": 1.8143082961095218,
+    "dist_5s_before": 26.947991007307902,
+    "n_windows": 91,
+    "rejected": [
+      {
+        "event": 220249102202586,
+        "pair": [
+          2202491,
+          2202586
+        ],
+        "reason": "implausible closing: 67.3 m in 5 s"
+      },
+      {
+        "event": 230216402302262,
+        "pair": [
+          2302164,
+          2302262
+        ],
+        "reason": "implausible closing: 80.2 m in 5 s"
+      },
+      {
+        "event": 120254801202598,
+        "pair": [
+          1202548,
+          1202598
+        ],
+        "reason": "implausible closing: 61.5 m in 5 s"
+      },
+      {
+        "event": 220258602202694,
+        "pair": [
+          2202586,
+          2202694
+        ],
+        "reason": "implausible closing: 69.5 m in 5 s"
+      },
+      {
+        "event": 120214701202191,
+        "pair": [
+          1202147,
+          1202191
+        ],
+        "reason": "track too short: 68 windows"
+      },
+      {
+        "event": 220258602202601,
+        "pair": [
+          2202586,
+          2202601
+        ],
+        "reason": "implausible closing: 48.4 m in 5 s"
+      },
+      {
+        "event": 120215301202191,
+        "pair": [
+          1202153,
+          1202191
+        ],
+        "reason": "track too short: 67 windows"
+      },
+      {
+        "event": 120254801202572,
+        "pair": [
+          1202548,
+          1202572
+        ],
+        "reason": "implausible closing: 48.1 m in 5 s"
+      },
+      {
+        "event": 120251901202548,
+        "pair": [
+          1202519,
+          1202548
+        ],
+        "reason": "implausible closing: 46.9 m in 5 s"
+      },
+      {
+        "event": 110267001102724,
+        "pair": [
+          1102670,
+          1102724
+        ],
+        "reason": "implausible closing: 43.2 m in 5 s"
+      },
+      {
+        "event": 220258602202702,
+        "pair": [
+          2202586,
+          2202702
+        ],
+        "reason": "implausible closing: 65.4 m in 5 s"
+      },
+      {
+        "event": 120251001202548,
+        "pair": [
+          1202510,
+          1202548
+        ],
+        "reason": "track too short: 65 windows"
+      },
+      {
+        "event": 120254801202551,
+        "pair": [
+          1202548,
+          1202551
+        ],
+        "reason": "implausible closing: 42.9 m in 5 s"
+      }
+    ],
+    "vehicle": 1102724,
+    "location": "us-101",
+    "orig_vehicle_id": 2724
+  },
+  "near_miss": {
+    "pair": [
+      1102704,
+      1102724
+    ],
+    "event": 110270401102724,
+    "mean_placement": 0.7288362247248491,
+    "target": 1102724,
+    "neighbour": 1102704,
+    "t_star_frame": 8111,
+    "min_dist": 2.0961096886433026,
+    "dist_5s_before": 38.11904870067762,
+    "n_windows": 91,
+    "rejected": [],
+    "vehicle": 1102724,
+    "location": "us-101",
+    "orig_vehicle_id": 2724
+  },
+  "safe": {
+    "pair": [
+      1102706,
+      1102724
+    ],
+    "event": 110270601102724,
+    "mean_placement": 0.9091580837965012,
+    "target": 1102724,
+    "neighbour": 1102710,
+    "t_star_frame": 8124,
+    "min_dist": 11.33564829452883,
+    "dist_5s_before": 31.922323263600845,
+    "n_windows": 91,
+    "rejected": [
+      {
+        "event": 220261602202661,
+        "pair": [
+          2202616,
+          2202661
+        ],
+        "reason": "no approach: 0.5 m apart 5 s before"
+      },
+      {
+        "event": 230236202302370,
+        "pair": [
+          2302362,
+          2302370
+        ],
+        "reason": "no approach: 9.8 m apart 5 s before"
+      },
+      {
+        "event": 220248602202491,
+        "pair": [
+          2202486,
+          2202491
+        ],
+        "reason": "no approach: 0.6 m apart 5 s before"
+      },
+      {
+        "event": 220282902202837,
+        "pair": [
+          2202829,
+          2202837
+        ],
+        "reason": "no approach: 5.5 m apart 5 s before"
+      },
+      {
+        "event": 220258602202614,
+        "pair": [
+          2202586,
+          2202614
+        ],
+        "reason": "no approach: nan m apart 5 s before"
+      },
+      {
+        "event": 220281602202829,
+        "pair": [
+          2202816,
+          2202829
+        ],
+        "reason": "no approach: 4.0 m apart 5 s before"
+      },
+      {
+        "event": 110287001102873,
+        "pair": [
+          1102870,
+          1102873
+        ],
+        "reason": "no approach: 4.1 m apart 5 s before"
+      },
+      {
+        "event": 130191201301917,
+        "pair": [
+          1301912,
+          1301917
+        ],
+        "reason": "no approach: 8.2 m apart 5 s before"
+      },
+      {
+        "event": 110268601102691,
+        "pair": [
+          1102686,
+          1102691
+        ],
+        "reason": "no approach: 5.9 m apart 5 s before"
+      },
+      {
+        "event": 210302202103035,
+        "pair": [
+          2103022,
+          2103035
+        ],
+        "reason": "no approach: 6.9 m apart 5 s before"
+      },
+      {
+        "event": 220255502202585,
+        "pair": [
+          2202555,
+          2202585
+        ],
+        "reason": "no approach: 8.4 m apart 5 s before"
+      },
+      {
+        "event": 110255201102613,
+        "pair": [
+          1102552,
+          1102613
+        ],
+        "reason": "no approach: 6.5 m apart 5 s before"
+      },
+      {
+        "event": 110287101102877,
+        "pair": [
+          1102871,
+          1102877
+        ],
+        "reason": "no approach: 6.8 m apart 5 s before"
+      },
+      {
+        "event": 120252401202548,
+        "pair": [
+          1202524,
+          1202548
+        ],
+        "reason": "implausible closing: 46.4 m in 5 s"
+      },
+      {
+        "event": 230220202302263,
+        "pair": [
+          2302202,
+          2302263
+        ],
+        "reason": "no approach: 7.4 m apart 5 s before"
+      },
+      {
+        "event": 110287101102876,
+        "pair": [
+          1102871,
+          1102876
+        ],
+        "reason": "no approach: 7.9 m apart 5 s before"
+      },
+      {
+        "event": 230223602302263,
+        "pair": [
+          2302236,
+          2302263
+        ],
+        "reason": "no approach: 8.7 m apart 5 s before"
+      }
+    ],
+    "vehicle": 1102724,
+    "location": "us-101",
+    "orig_vehicle_id": 2724,
+    "from_window": "collision",
+    "peak_median_p_coll_gauss": 0.0
+  },
+  "false_alarm": {
+    "pair": [
+      1102706,
+      1102724
+    ],
+    "event": 110270601102724,
+    "mean_placement": 0.9091580837965012,
+    "target": 1102724,
+    "neighbour": 1102723,
+    "t_star_frame": 8124,
+    "min_dist": 6.313044979256963,
+    "dist_5s_before": 31.922323263600845,
+    "n_windows": 91,
+    "rejected": [
+      {
+        "event": 220261602202661,
+        "pair": [
+          2202616,
+          2202661
+        ],
+        "reason": "no approach: 0.5 m apart 5 s before"
+      },
+      {
+        "event": 230236202302370,
+        "pair": [
+          2302362,
+          2302370
+        ],
+        "reason": "no approach: 9.8 m apart 5 s before"
+      },
+      {
+        "event": 220248602202491,
+        "pair": [
+          2202486,
+          2202491
+        ],
+        "reason": "no approach: 0.6 m apart 5 s before"
+      },
+      {
+        "event": 220282902202837,
+        "pair": [
+          2202829,
+          2202837
+        ],
+        "reason": "no approach: 5.5 m apart 5 s before"
+      },
+      {
+        "event": 220258602202614,
+        "pair": [
+          2202586,
+          2202614
+        ],
+        "reason": "no approach: nan m apart 5 s before"
+      },
+      {
+        "event": 220281602202829,
+        "pair": [
+          2202816,
+          2202829
+        ],
+        "reason": "no approach: 4.0 m apart 5 s before"
+      },
+      {
+        "event": 110287001102873,
+        "pair": [
+          1102870,
+          1102873
+        ],
+        "reason": "no approach: 4.1 m apart 5 s before"
+      },
+      {
+        "event": 130191201301917,
+        "pair": [
+          1301912,
+          1301917
+        ],
+        "reason": "no approach: 8.2 m apart 5 s before"
+      },
+      {
+        "event": 110268601102691,
+        "pair": [
+          1102686,
+          1102691
+        ],
+        "reason": "no approach: 5.9 m apart 5 s before"
+      },
+      {
+        "event": 210302202103035,
+        "pair": [
+          2103022,
+          2103035
+        ],
+        "reason": "no approach: 6.9 m apart 5 s before"
+      },
+      {
+        "event": 220255502202585,
+        "pair": [
+          2202555,
+          2202585
+        ],
+        "reason": "no approach: 8.4 m apart 5 s before"
+      },
+      {
+        "event": 110255201102613,
+        "pair": [
+          1102552,
+          1102613
+        ],
+        "reason": "no approach: 6.5 m apart 5 s before"
+      },
+      {
+        "event": 110287101102877,
+        "pair": [
+          1102871,
+          1102877
+        ],
+        "reason": "no approach: 6.8 m apart 5 s before"
+      },
+      {
+        "event": 120252401202548,
+        "pair": [
+          1202524,
+          1202548
+        ],
+        "reason": "implausible closing: 46.4 m in 5 s"
+      },
+      {
+        "event": 230220202302263,
+        "pair": [
+          2302202,
+          2302263
+        ],
+        "reason": "no approach: 7.4 m apart 5 s before"
+      },
+      {
+        "event": 110287101102876,
+        "pair": [
+          1102871,
+          1102876
+        ],
+        "reason": "no approach: 7.9 m apart 5 s before"
+      },
+      {
+        "event": 230223602302263,
+        "pair": [
+          2302236,
+          2302263
+        ],
+        "reason": "no approach: 8.7 m apart 5 s before"
+      }
+    ],
+    "vehicle": 1102724,
+    "location": "us-101",
+    "orig_vehicle_id": 2724,
+    "from_window": "collision",
+    "peak_median_p_coll_gauss": 0.19746204
+  }
+}

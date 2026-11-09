@@ -10,6 +10,7 @@ venv/
 *.csv
 !experiments/comparison_*.csv
 !experiments/tuning/*/trials.csv
+!experiments/results/risk_timeline/*.csv
 /data/
 /checkpoints/
 /logs/

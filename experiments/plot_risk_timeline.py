@@ -401,20 +401,25 @@ SOURCE_NOTE = {
 }
 
 
-def plot_case(case, info, scores, truth, metric, source, path):
+def case_rows(scores, case, info):
+    """Scores of the case's own (target, neighbour) pair."""
+    return scores[(scores.case == info.get("from_window", case))
+                  & (scores.neighbour == info["neighbour"])]
+
+
+def plot_case(case, info, scores, truth, metric, source, path, top):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
     scores = scores[scores.source == source]
-    rows = scores[(scores.case == info.get("from_window", case))
-                  & (scores.neighbour == info["neighbour"])]
+    rows = case_rows(scores, case, info)
     windows = scores[scores.case == info.get("from_window", case)].t.nunique()
-    top = max(float(rows[metric].max()) * 1.08 if len(rows) else 0.0, 0.05)
     x_range = (-BEFORE * DT, AFTER * DT)
 
     fig = plt.figure(figsize=(13, 8.2), facecolor=SURFACE)
-    grid = fig.add_gridspec(3, 4, height_ratios=[1, 1, 0.85], hspace=0.45, wspace=0.12)
+    grid = fig.add_gridspec(3, 4, height_ratios=[1, 1, 0.85], hspace=0.45, wspace=0.12,
+                            top=0.86)
     for i, base in enumerate(BASELINES):
         ax = fig.add_subplot(grid[i // 4, i % 4])
         _style(ax)
@@ -431,6 +436,8 @@ def plot_case(case, info, scores, truth, metric, source, path):
         ax.set_ylim(0, top)
         if i % 4:
             ax.tick_params(labelleft=False)
+        else:
+            ax.set_ylabel(metric, color=INK_2, fontsize=9)
         if i // 4 == 0:
             ax.tick_params(labelbottom=False)
 
@@ -453,7 +460,7 @@ def plot_case(case, info, scores, truth, metric, source, path):
                plt.Line2D([], [], color=TUNED_C, linewidth=2, linestyle="--",
                           label="tuned (traj_mamba: none)")]
     fig.legend(handles=handles, loc="upper right", frameon=False, fontsize=9,
-               bbox_to_anchor=(0.98, 0.985), ncol=2, labelcolor=INK_2)
+               bbox_to_anchor=(0.98, 0.945), ncol=2, labelcolor=INK_2)
     fig.suptitle(
         f"{TITLES[case]}: vehicle {info['target']} vs {info['neighbour']}"
         f"   ({info['location']}, true min distance {info['min_dist']:.2f} m)",
@@ -471,10 +478,14 @@ def plot(args):
     cases = {**windows, **derive_safe_and_alarm(scores, truth, windows)}
     (args.out / "plotted_cases.json").write_text(json.dumps(cases, indent=2), encoding="utf-8")
     FIGURES.mkdir(parents=True, exist_ok=True)
-    for case, info in cases.items():
-        for source in SOURCES:
+    for source in SOURCES:
+        # One y-range per source across all cases, so collision and safe compare.
+        rows = pd.concat([case_rows(scores[scores.source == source], c, i)
+                          for c, i in cases.items()])
+        top = max(float(rows[args.metric].max()) * 1.08, 0.05)
+        for case, info in cases.items():
             path = FIGURES / f"risk_timeline_{case}_{source}_{args.metric}.png"
-            plot_case(case, info, scores, truth, args.metric, source, path)
+            plot_case(case, info, scores, truth, args.metric, source, path, top)
             print(path)
 
 

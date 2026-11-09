@@ -429,6 +429,127 @@ No probability measure is calibrated, before or after tuning. Every Brier skill 
 negative (mean over models, `pred`: `p_coll_gauss` −3.8 → −4.4, `rss_ds` −45 → −55),
 unchanged from the first study's §5.5.
 
+### 5.9 Risk over time for one vehicle
+
+The tables above score each (vehicle, neighbour) pair once per 1 s window. This section
+re-runs all 15 entries every **0.1 s** along one vehicle's drive. The resulting curves show
+how the predicted collision probability evolves as the vehicle approaches, passes or
+avoids each neighbour.
+
+**Is the risk value a probability or a standardised value?** Neither one in general.
+- **No risk score is standardised.** Nothing in the pipeline z-scores or rescales it.
+  Each of the 30 measures keeps its own unit: metres (`min_dist`), seconds (`ttc_true`),
+  field units (`s_field_cal`), joules (`conflict_index`).
+- **Four measures are probabilities in [0, 1]:** `p_coll_gauss`, `p_coll_mc`, `p_pdrf`
+  and `rss_ds`, the last being a 0/1 flag.
+- **None of the four is calibrated.** Every Brier skill score is negative (§5.8). They
+  rank pairs well, but p = 0.2 does not mean that 20 % of such pairs collide.
+
+The curves below plot `p_coll_gauss`: the highest probability, at any step of the next
+5 s, that the target's predicted position (a 2-D Gaussian) overlaps the neighbour's box.
+
+**Setup.**
+- **Axes:** x is "now", in seconds from the true closest approach (−8 s to +1 s, 91
+  windows). y is the risk over the next 5 s as seen from "now".
+- **Panels:** one per architecture, blue for the baseline and dashed orange for the tuned
+  model (traj_mamba was not retrained). The bottom strip is the true distance.
+- **Code and data:** [`experiments/plot_risk_timeline.py`](experiments/plot_risk_timeline.py),
+  with the data in `experiments/results/risk_timeline/`.
+
+**Two sources.** Each case is plotted twice:
+- **`cv`:** the model predicts the target's path and uncertainty, and the neighbour rolls
+  forward at constant velocity. The neighbour must be among the 15 nearest vehicles, so
+  this is defined for most of the timeline. It is also the study's recommended deployable
+  risk (§6).
+- **`pred`:** the headline source, where the model predicts the neighbour too. It only
+  exists while the neighbour is inside the target's risk-selected scene. A car often joins
+  that scene less than 1 s before the closest approach, so its curves are short and
+  gappy (33 % coverage for the collision case).
+
+**How the cases were chosen.** Candidates are ranked by mean `p_coll_gauss` placement
+over the 15 models, from the committed `pred` results. Each case is the first candidate
+that is a real, plausible approach: the two vehicles must be 10–40 m apart 5 s before the
+closest approach, and at least 70 of the 91 windows must exist.
+
+Raw rankings are dominated by bad tracks, and the filter removes them:
+- **Duplicate tracks:** the 13 top-ranked "detected collisions" are pairs sitting 0.1–10 m
+  apart for the whole window. The worst are two ids of one car, 0.2 m apart for 9 s.
+- **Impossible closes:** several "missed" ones close from 60–80 m to under 2 m in 5 s,
+  which is not possible in the same lane.
+
+Every rejection and its reason is in `windows.json`. All three event cases fall on one
+vehicle. The safe and false-alarm neighbours come from that vehicle's own timeline: true
+distance always > 5 m, ranked by the peak median-model risk.
+
+**The vehicle, 1102724 (US-101), is a motorcycle**: 1.2 m × 0.6 m, filtering between
+lanes in congested traffic. That is why it has several close encounters within 5 s.
+Geometry at t = 0:
+
+| case | neighbour | true min distance | gap at t = 0 (long., lat.) | speeds (m/s) | mean placement |
+|---|---|---|---|---|---|
+| collision (detected) | 1102706 | 1.67 m | −0.08, +1.66 | 3.9 / 1.5 | 0.909 |
+| collision (missed) | 1102714 | 1.81 m | −0.12, +1.81 | 13.2 / 6.3 | 0.695 |
+| near miss (2–3 m) | 1102704 | 2.10 m | 0.00, −2.10 | 4.8 / 0.0 | 0.729 |
+| no collision (safe) | 1102710 | 11.3 m | — | — | — |
+| false alarm | 1102723 | 6.3 m | same lane, 9 m behind | 10.9 / 10.7 | — |
+
+All three "collisions" are **side-by-side passes**: no longitudinal gap, 1.7–2.1 m
+apart laterally. At that offset the two boxes do not overlap; the half-widths sum to
+about 1.35 m. So the 2 m label calls these collisions, while the box-overlap probability
+correctly falls towards 0 as the motorcycle draws alongside. Risk peaks while the
+*predicted* paths still converge, 1–4 s before the pass. This is caveat 1 (surrogate
+labels) made visible.
+
+**Results (`cv`, `p_coll_gauss`, median over the 15 models):**
+
+| case | peak | time of peak | first ≥ 0.1 | mean per-model peak: baseline / tuned |
+|---|---|---|---|---|
+| collision (detected) | 0.148 | −0.9 s | −4.4 s | 0.177 / 0.251 |
+| collision (missed) | 0.058 | −0.5 s | never | 0.071 / 0.104 |
+| near miss | 0.149 | −2.8 s | −3.6 s | 0.200 / 0.146 |
+| no collision (safe) | 0.000 | — | never | 0.000 / 0.000 |
+| false alarm | 0.197 | −6.9 s | −7.2 s | 0.221 / 0.181 |
+
+- **The detected collision gives about 4 s of warning.** The median model crosses 0.1 at
+  −4.4 s, while the vehicles are still 28 m apart.
+- **The missed collision never crosses 0.1.** The motorcycle passes a slower car at
+  13 m/s, and constant-velocity extrapolation of a filtering motorcycle does not put it
+  in the car's box.
+- **The safe neighbour, in another lane 11 m away, scores exactly 0** for every model.
+- **The false alarm peaks higher than the detected collision.** A same-lane car 9 m
+  behind, travelling at the same speed, scores 0.2 at −7 s, when the gap is about 9 m and
+  the prediction's uncertainty is widest.
+
+  This is the calibration problem of §5.8 in one picture. Across the dataset these
+  scores *rank* pairs well (ROC-AUC 0.93–0.95 for `cv`), but on one vehicle their
+  absolute value does not separate a collision from a safe pair. Thresholding at a fixed
+  p would need calibration first.
+- **Baseline vs tuned.** Neither version is consistently higher. The tuned models raise
+  the collision peak (0.177 → 0.251) and lower the near-miss and false-alarm peaks, but
+  this is one vehicle. The aggregate comparison is §5.2.
+- **Under `pred`:**
+  - The safe neighbour is never in the target's scene, so `pred` has no curve for it.
+  - The detected collision's curve starts only 0.2 s before the pass, at a median of
+    0.167.
+  - The false alarm reaches 0.231.
+
+  `pred` cannot warn about a neighbour before the scene selects it.
+
+| case | `cv` (full timeline) | `pred` (headline source) |
+|---|---|---|
+| collision (detected) | ![](experiments/figures/risk_timeline_collision_cv_p_coll_gauss.png) | [figure](experiments/figures/risk_timeline_collision_pred_p_coll_gauss.png) |
+| collision (missed) | ![](experiments/figures/risk_timeline_missed_cv_p_coll_gauss.png) | [figure](experiments/figures/risk_timeline_missed_pred_p_coll_gauss.png) |
+| near miss | ![](experiments/figures/risk_timeline_near_miss_cv_p_coll_gauss.png) | [figure](experiments/figures/risk_timeline_near_miss_pred_p_coll_gauss.png) |
+| no collision (safe) | ![](experiments/figures/risk_timeline_safe_cv_p_coll_gauss.png) | [figure](experiments/figures/risk_timeline_safe_pred_p_coll_gauss.png) |
+| false alarm | ![](experiments/figures/risk_timeline_false_alarm_cv_p_coll_gauss.png) | [figure](experiments/figures/risk_timeline_false_alarm_pred_p_coll_gauss.png) |
+
+`p_coll_mc` is in `scores.csv` alongside `p_coll_gauss`. Plot it with
+`python experiments/plot_risk_timeline.py --plot --metric p_coll_mc`.
+
+**Reproduce:** `--select` locally, which reads the committed npz files. Then run
+`--score` on the GPU box, which needs NGSIM and all 15 checkpoints; 15 models × 2 sources
+× 3 windows take about 4 min. Finally run `--plot` locally.
+
 ---
 
 ## 6. Why does better RMSE give worse risk?
