@@ -10,6 +10,7 @@ the model predicts both the target and the neighbour, as in the headline study.
     --select   pick the cases from the committed risk_v2 placements (local, seconds)
     --score    rebuild the windows and score all 15 models     (lab PC: NGSIM + checkpoints)
     --plot     safe / false-alarm selection and the figures     (local, from the CSVs)
+    --tracks   raw positions around each case, for diagrams     (lab PC, no model)
 
 Both `cv` and `pred` sources are scored (see SOURCES); one figure per case and
 source.
@@ -332,6 +333,29 @@ def score(args):
     (args.out / "windows.json").write_text(json.dumps(windows, indent=2), encoding="utf-8")
 
 
+TRACK_RADIUS = 60.0   # m, longitudinal, around the target for the bird's-eye export
+
+
+def export_tracks(args):
+    """tracks.csv: every vehicle within TRACK_RADIUS of the target over each case
+    window -- raw positions for the bird's-eye diagrams. Needs no model."""
+    windows = json.loads((args.out / "windows.json").read_text(encoding="utf-8"))
+    full = NGSIMDataLoader(locations=NGSIM_LOCATIONS).fetch()
+    cols = ["vehicle_id", "frame_id", "local_x", "local_y", "v_vel", "lane_id",
+            "v_length", "v_width", "v_class"]
+    out = []
+    for case, info in windows.items():
+        t_star = info["t_star_frame"]
+        part = full.loc[full.frame_id.between(t_star - BEFORE, t_star + AFTER), cols]
+        ego = part[part.vehicle_id == info["target"]].set_index("frame_id").local_y
+        near = (part.local_y - part.frame_id.map(ego)).abs() <= TRACK_RADIUS
+        part = part[near].copy()
+        part.insert(0, "case", case)
+        part.insert(2, "t", ((part.frame_id - t_star) * DT).round(1))
+        out.append(part)
+    pd.concat(out).to_csv(args.out / "tracks.csv", index=False)
+
+
 # --------------------------------------------------------------------------- #
 #  --plot
 # --------------------------------------------------------------------------- #
@@ -496,6 +520,8 @@ def main(argv=None):
     mode.add_argument("--select", action="store_true")
     mode.add_argument("--score", action="store_true")
     mode.add_argument("--plot", action="store_true")
+    mode.add_argument("--tracks", action="store_true",
+                      help="export raw positions around each case (lab PC, no model)")
     parser.add_argument("--models", nargs="*", default=list(MODELS))
     parser.add_argument("--out", type=Path, default=OUT)
     parser.add_argument("--metric", choices=PLOTTED, default="p_coll_gauss",
@@ -508,6 +534,8 @@ def main(argv=None):
         print(json.dumps(select_cases(), indent=2))
     elif args.score:
         score(args)
+    elif args.tracks:
+        export_tracks(args)
     else:
         plot(args)
     return 0
