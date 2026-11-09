@@ -19,6 +19,7 @@ The detailed write-ups for individual stages are linked where they apply:
 | Risk prediction study | [RISK_PREDICTION_RESULTS.md](RISK_PREDICTION_RESULTS.md) |
 | Tuning study | [RISK_TUNING_RESULTS.md](RISK_TUNING_RESULTS.md) |
 | Risk over time for one vehicle | [RISK_TIMELINE.md](RISK_TIMELINE.md) |
+| STGAT-EDGRU and the Collision Risk Index | [STGAT_EDGRU.md](STGAT_EDGRU.md) |
 
 ---
 
@@ -36,9 +37,10 @@ The detailed write-ups for individual stages are linked where they apply:
 10. [Experiment 8: Risk prediction from trajectory predictions](#experiment-8-risk-prediction-from-trajectory-predictions-1-november)
 11. [Experiment 9: Hyperparameter tuning and its effect on risk](#experiment-9-hyperparameter-tuning-and-its-effect-on-risk-68-november)
 12. [Experiment 10: Risk over time for one vehicle](#experiment-10-risk-over-time-for-one-vehicle-9-november)
-13. [What the experiments say together](#what-the-experiments-say-together)
-14. [Making the research methodology stronger](#making-the-research-methodology-stronger)
-15. [Appendix: papers referenced](#appendix-papers-referenced)
+13. [Experiment 11: STGAT-EDGRU and the Collision Risk Index](#experiment-11-stgat-edgru-and-the-collision-risk-index-910-november)
+14. [What the experiments say together](#what-the-experiments-say-together)
+15. [Making the research methodology stronger](#making-the-research-methodology-stronger)
+16. [Appendix: papers referenced](#appendix-papers-referenced)
 
 ---
 
@@ -423,6 +425,10 @@ kinds of model add an auxiliary term through an `aux_loss` hook:
 
 The full table is in `experiments/comparison_rmse.csv`.
 
+*Added later (Experiment 11): STGAT-EDGRU (Su et al., Electronics 2025), same budget, scores
+0.448 / 4.247 / **2.1465** with 713,733 parameters. It would rank 15th of these 40, between
+FHIF and TS-GAN. The ranks above are left as they were.*
+
 **How the reproduction compares with the paper's Table I:**
 
 | Model | Paper average | Ours | Paper 5 s | Ours 5 s |
@@ -742,6 +748,64 @@ collision, no-collision and other cases. Earlier studies give one number per pai
    flagging the collision. That matches their aggregate `pred` lead.
 5. **The 2 m "collisions" here are side-by-side passes** in which the boxes never touch.
    This is the surrogate-label caveat made visible.
+
+---
+
+## Experiment 11: STGAT-EDGRU and the Collision Risk Index (9–10 November)
+
+**Question.** Su, Wang & Wang (Electronics 2025) predict every vehicle's trajectory with
+STGAT-EDGRU, then turn the predicted Gaussians into a Collision Risk Index (CRI). They claim
+that the CRI warns 0.4–0.6 s earlier than ITTC, THW and LCTTC. Does the model hold up on
+NGSIM, and is the CRI a better risk measure than the ones already in the study?
+
+**Paper.** STGAT-EDGRU has five stages:
+- a Transformer temporal encoder;
+- graph attention over vehicles within 50 m;
+- a gated multimodal unit (GMU) fusing the two;
+- a GRU encoder and an autoregressive GRU decoder;
+- one bivariate Gaussian per future step.
+
+The CRI is a Monte Carlo collision probability over a circle, times a collision intensity,
+fused over the horizon and the neighbours.
+
+**Setup** (details in [STGAT_EDGRU.md](STGAT_EDGRU.md)):
+- **R, repo pipeline.** The same data, budget and risk scoring as the 39-model benchmark; then
+  Optuna tuning as in Experiment 9; then the risk_v2 scoring and the five timeline encounters
+  of Experiment 10.
+- **P, paper-faithful pipeline.** 5 Hz, six features, 6,420 lane-change-centred samples,
+  every vehicle predicted, teacher forcing, 120 epochs, ablations M1–M3. There is also a
+  Fig. 6-style case study on the ten test lane changes with the lowest ground-truth TTC.
+- **Two CRIs.** `cri_paper` exactly as printed, and `cri_fixed`. The paper's Eq. 29 adds
+  standard deviations and correlations where variances must add, and its Eq. 32 intensity
+  falls as the speed difference grows. Its Eq. 35 omits α1, α2 and M; this study uses
+  0.5 / 0.5 / 1000.
+
+**Findings.**
+1. **The model is ordinary on RMSE.** In R it scores 2.147 m (22nd of 47) with 714 k
+   parameters, 3–5× its neighbours in the table. In P it beats constant velocity (2.75 vs
+   3.73 m main-vehicle average) but is far from the paper's HighD numbers (5.41 vs 1.12 m at
+   5 s).
+2. **The ablations do not reproduce.** The full model and M1–M3 are within 0.05 m; the
+   paper's large M2 gap does not appear.
+3. **Teacher forcing makes the predicted uncertainty useless.** At 5 s, σ ≈ 0.2 m against a
+   5.4 m error, and 95 % ellipse coverage is 0.6 %. Validation NLL rises from epoch 1, so the
+   checkpoint is chosen on validation RMSE.
+4. **The CRI ranks worse than plain predicted distance.**
+   - At sample level in P it is below `min_dist` on every label.
+   - In R, even on the true future, its PR-AUC at < 2 m is 0.005. The circle (≈ 4.5–5 m for
+     two cars) holds congested same-lane followers for the whole horizon.
+   - `cri_fixed` beats `cri_paper` nearly everywhere.
+5. **The earlier-warning claim does not survive ten cases.** CRI peaks precede ITTC in 7 of
+   10 cases, with leads spread from −3 to +9 s. The repo's `p_coll_gauss` on the same
+   predictions leads in 10 of 10. Any 5 s-ahead measure leads a current-frame surrogate.
+6. **The CRI's one strength is ordering on the timeline.** On the Experiment 10 vehicle under
+   `cv`, both CRIs score all three real events above the false alarm in every one of 16
+   models (`p_coll_gauss`: 3 of 16). But they saturate near 0.5 on every event, so they
+   cannot tell a collision from a near miss.
+7. **Under `pred`, STGAT-EDGRU ranks 15th of 16** (headline ROC-AUC 0.734 at < 2 m). On the
+   timeline it gives the false alarm 0.727, the highest of any model. This is the
+   Experiment 9 lesson again: ordinary RMSE, poor risk when the model predicts both
+   vehicles.
 
 ---
 
