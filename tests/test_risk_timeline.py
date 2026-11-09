@@ -43,3 +43,7 @@ def test_timeline_follows_a_closing_pair():
     # Zero predictor: both stay put, so risk is highest when they are closest.
     assert abs(out.p_coll_gauss.idxmax() - t_star) <= 10
     assert out.p_coll_gauss.between(0, 1).all()
+
+    # cv candidates are the 15 nearest, so the leader is scored at every window.
+    cv = score_windows(_ZeroPredictor(), None, loader, scenes, torch.device("cpu"), source="cv")
+    assert set(cv[cv.neighbour == 2].now_frame) == set(now)

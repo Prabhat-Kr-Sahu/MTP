@@ -11,10 +11,13 @@ the model predicts both the target and the neighbour, as in the headline study.
     --score    rebuild the windows and score all 15 models     (lab PC: NGSIM + checkpoints)
     --plot     safe / false-alarm selection and the figures     (local, from the CSVs)
 
-Cases (each the first ranked candidate that is a real approach -- >= 10 m apart
-5 s before the closest approach -- with >= 70 of its 91 windows):
-    collision   < 2 m event the 15 models rank highest (mean p_coll_gauss placement)
-    missed      < 2 m event they rank lowest
+Both `cv` and `pred` sources are scored (see SOURCES); one figure per case and
+source.
+
+Cases (each the first ranked candidate that is a real, plausible approach --
+10-40 m apart 5 s before the closest approach -- with >= 70 of its 91 windows):
+    collision   < 2 m event the 15 models rank highest (mean p_coll_gauss placement >= 0.9)
+    missed      < 2 m event they rank lowest (< 0.75)
     near_miss   2-3 m event, nearest the median placement
     safe        a neighbour of the collision case's target that stays > 5 m away
                 (but within 30 m, so it interacts), lowest peak median risk
@@ -56,12 +59,20 @@ BASELINES = ("inatran", "cognitive", "dacr_amtp", "miat", "mha_lstm", "stdan",
 # traj_mamba's tuning was stopped at 20/30 trials and never retrained.
 MODELS = BASELINES + tuple(f"{b}_tuned" for b in BASELINES[:7])
 PLOTTED = ("p_coll_gauss", "p_coll_mc")
+# cv: the model predicts the target (path + uncertainty), the 15 nearest
+#     neighbours roll forward at constant velocity -- defined at every window,
+#     and the study's recommended deployable risk.
+# pred: the model predicts the neighbour too, but only for neighbours in the
+#     target's risk-selected scene, which a car often joins < 1 s before t*.
+SOURCES = ("cv", "pred")
 BEFORE, AFTER = 80, 10          # frames around the closest approach: -8 s .. +1 s
 SAFE_MIN_DIST, INTERACT_DIST, ALARM_P = 5.0, 30.0, 0.1
 CANDIDATES = 40                 # ranked events kept per case
-APPROACH_DIST = 10.0            # m apart 5 s before t*: a real approach, not a duplicate track
+# m apart 5 s before t*: >= 10 is a real approach (not a duplicate track),
+# <= 40 a plausible one (8 m/s mean closing; faster to < 2 m is a bad track).
+APPROACH_DIST = (10.0, 40.0)
 MIN_WINDOWS = 70                # of the 91 windows in [-8 s, +1 s]
-DETECTED, MISSED = 0.95, 0.7    # mean placement bounds for the two collision cases
+DETECTED, MISSED = 0.9, 0.75    # mean placement bounds for the two collision cases
 LABEL_DIST = 2.0
 
 
@@ -162,8 +173,10 @@ def check_candidate(df, pair, prefer=None):
     out = {"target": int(target), "neighbour": int(neighbour), "t_star_frame": t_star,
            "min_dist": min_dist, "dist_5s_before": before,
            "n_windows": n_windows(df, target, t_star), "reason": None}
-    if not before >= APPROACH_DIST:
+    if not before >= APPROACH_DIST[0]:
         out["reason"] = f"no approach: {before:.1f} m apart 5 s before"
+    elif before > APPROACH_DIST[1]:
+        out["reason"] = f"implausible closing: {before:.1f} m in 5 s"
     elif out["n_windows"] < MIN_WINDOWS:
         out["reason"] = f"track too short: {out['n_windows']} windows"
     return out
@@ -229,19 +242,19 @@ def window_scenes(df, target, t_star, loader_kwargs=None):
     return loader, scenes
 
 
-def score_windows(model, norm_stats, loader, scenes, device, batch_size=64):
-    """One row per (window, scene neighbour): pred-source risk for the window."""
+def score_windows(model, norm_stats, loader, scenes, device, batch_size=64, source="pred"):
+    """One row per (window, candidate neighbour): `source` risk for the window."""
     metrics = {name: METRICS[name] for name in PLOTTED}
     pending = []
     for scene in scenes:
-        candidates = _candidates(loader, scene, "pred", loader.future_frames)
+        candidates = _candidates(loader, scene, source, loader.future_frames)
         if len(candidates[0]):
             sample = create_sample(scene, target_idx=0, T_h=TH_STEPS, T_f=loader.future_frames)
             pending.append((sample, scene, candidates))
     frames = []
     for start in range(0, len(pending), batch_size):
         chunk = pending[start:start + batch_size]
-        out = _score_batch(model, loader, chunk, norm_stats, LABEL_DIST, "pred", device,
+        out = _score_batch(model, loader, chunk, norm_stats, LABEL_DIST, source, device,
                            batch_size, loader.future_frames, metrics, ())
         frames.append(pd.DataFrame({
             "now_frame": np.concatenate([
@@ -297,12 +310,15 @@ def score(args):
         for name in args.models:
             model, namespace = load_notebook_model(
                 name, device=args.device, load_weights=not args.random_weights, stats=stats)
-            frame = score_windows(model, namespace["norm_stats"], loader, scenes, args.device)
-            frame.insert(0, "model", name)
-            frame.insert(0, "case", case)
-            seen |= set(frame.neighbour.tolist())
-            scores.append(frame)
-            print(f"  {name}: {len(frame)} rows", flush=True)
+            for source in SOURCES:
+                frame = score_windows(model, namespace["norm_stats"], loader, scenes,
+                                      args.device, source=source)
+                frame.insert(0, "source", source)
+                frame.insert(0, "model", name)
+                frame.insert(0, "case", case)
+                seen |= set(frame.neighbour.tolist())
+                scores.append(frame)
+                print(f"  {name} / {source}: {len(frame)} rows", flush=True)
         dist = true_distances(loader, target, sorted(seen | {neighbour}), t_star)
         dist.insert(0, "case", case)
         truth.append(dist)
@@ -310,7 +326,7 @@ def score(args):
     t0 = {c: w["t_star_frame"] for c, w in windows.items()}
     for frames in (scores, truth):
         for f in frames:
-            f.insert(2, "t", ((f.now_frame - f.case.map(t0)) * DT).round(1))
+            f.insert(1, "t", ((f.now_frame - f.case.map(t0)) * DT).round(1))
     pd.concat(scores).to_csv(args.out / "scores.csv", index=False)
     pd.concat(truth).to_csv(args.out / "truth.csv", index=False)
     (args.out / "windows.json").write_text(json.dumps(windows, indent=2), encoding="utf-8")
@@ -324,9 +340,11 @@ def derive_safe_and_alarm(scores, truth, windows):
 
     Pool: neighbours of the case targets other than the case's own neighbour,
     whose true distance stays > SAFE_MIN_DIST yet comes within INTERACT_DIST,
-    and that are in the target's scene for at least half the windows. The
-    collision case's window (the particular vehicle) is preferred for both.
+    and that are scored in at least half the windows. Ranked on the cv source,
+    which is defined throughout. The collision case's window (the particular
+    vehicle) is preferred for both, and the two are never the same neighbour.
     """
+    scores = scores[scores.source == "cv"]
     n_models = scores.model.nunique()
     peak = (scores.groupby(["case", "neighbour", "t"])["p_coll_gauss"].median()
             .groupby(["case", "neighbour"]).max())
@@ -342,7 +360,7 @@ def derive_safe_and_alarm(scores, truth, windows):
     home = pool[pool.index.get_level_values("case") == "collision"]
     safe = (home if len(home) else pool).peak.idxmin()
     alarm_pool = home if len(home) and home.peak.max() >= ALARM_P else pool
-    alarm = alarm_pool.peak.idxmax()
+    alarm = alarm_pool.drop(index=safe, errors="ignore").peak.idxmax()
     out = {}
     for name, (case, nb) in (("safe", safe), ("false_alarm", alarm)):
         out[name] = {**windows[case], "neighbour": int(nb), "from_window": case,
@@ -377,11 +395,18 @@ def _style(ax):
     ax.axvline(0, color=MUTED, linewidth=0.8, linestyle=":")
 
 
-def plot_case(case, info, scores, truth, metric, path):
+SOURCE_NOTE = {
+    "cv": "source cv: model-predicted target path and uncertainty, neighbour at constant velocity",
+    "pred": "source pred: the model predicts both cars; a gap = neighbour not in the target's scene",
+}
+
+
+def plot_case(case, info, scores, truth, metric, source, path):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
+    scores = scores[scores.source == source]
     rows = scores[(scores.case == info.get("from_window", case))
                   & (scores.neighbour == info["neighbour"])]
     windows = scores[scores.case == info.get("from_window", case)].t.nunique()
@@ -401,7 +426,7 @@ def plot_case(case, info, scores, truth, metric, path):
             full = series.reindex(np.round(np.arange(-BEFORE, AFTER + 1) * DT, 1))
             ax.plot(full.index, full.values, color=colour, linestyle=style, linewidth=2)
         cover = rows[rows.model == base].t.nunique() / max(windows, 1)
-        ax.set_title(f"{base}   (in scene {cover:.0%})", fontsize=9, color=INK, loc="left")
+        ax.set_title(f"{base}   (scored {cover:.0%})", fontsize=9, color=INK, loc="left")
         ax.set_xlim(*x_range)
         ax.set_ylim(0, top)
         if i % 4:
@@ -433,9 +458,8 @@ def plot_case(case, info, scores, truth, metric, path):
         f"{TITLES[case]}: vehicle {info['target']} vs {info['neighbour']}"
         f"   ({info['location']}, true min distance {info['min_dist']:.2f} m)",
         x=0.06, y=0.985, ha="left", fontsize=12, color=INK)
-    fig.text(0.06, 0.935, f"y: {METRIC_LABEL[metric]}. Uncalibrated probability, "
-             "source pred; a gap = neighbour not in the target's scene.",
-             fontsize=9, color=INK_2)
+    fig.text(0.06, 0.935, f"y: {METRIC_LABEL[metric]}, an uncalibrated probability.\n"
+             f"{SOURCE_NOTE[source]}.", fontsize=9, color=INK_2, va="top")
     fig.savefig(path, dpi=130, facecolor=SURFACE, bbox_inches="tight")
     plt.close(fig)
 
@@ -448,10 +472,10 @@ def plot(args):
     (args.out / "plotted_cases.json").write_text(json.dumps(cases, indent=2), encoding="utf-8")
     FIGURES.mkdir(parents=True, exist_ok=True)
     for case, info in cases.items():
-        for metric in PLOTTED:
-            path = FIGURES / f"risk_timeline_{case}_{metric}.png"
-            plot_case(case, info, scores, truth, metric, path)
-            print(path.relative_to(ROOT))
+        for source in SOURCES:
+            path = FIGURES / f"risk_timeline_{case}_{source}_{args.metric}.png"
+            plot_case(case, info, scores, truth, args.metric, source, path)
+            print(path)
 
 
 def main(argv=None):
@@ -463,6 +487,8 @@ def main(argv=None):
     mode.add_argument("--plot", action="store_true")
     parser.add_argument("--models", nargs="*", default=list(MODELS))
     parser.add_argument("--out", type=Path, default=OUT)
+    parser.add_argument("--metric", choices=PLOTTED, default="p_coll_gauss",
+                        help="--plot: which probability to draw")
     parser.add_argument("--random-weights", action="store_true",
                         help="smoke test only: no checkpoints, MEANINGLESS scores")
     args = parser.parse_args(argv)
