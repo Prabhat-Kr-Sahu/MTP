@@ -48,7 +48,9 @@ import torch  # noqa: E402
 from src.config import DEVICE, DT, NGSIM_LOCATIONS, SEED, TF_STEPS, TH_STEPS  # noqa: E402
 from src.data.loader import NGSIMDataLoader, create_sample  # noqa: E402
 from src.evaluation.risk_metrics import METRICS  # noqa: E402
-from src.evaluation.risk_scoring import _candidates, _score_batch  # noqa: E402
+from src.evaluation.risk_scoring import (  # noqa: E402
+    HEADLINE_METRICS, _candidates, _score_batch,
+)
 
 EXPERIMENTS = ROOT / "experiments"
 RISK_V2 = EXPERIMENTS / "results" / "risk_v2"
@@ -60,6 +62,9 @@ BASELINES = ("inatran", "cognitive", "dacr_amtp", "miat", "mha_lstm", "stdan",
 # traj_mamba's tuning was stopped at 20/30 trials and never retrained.
 MODELS = BASELINES + tuple(f"{b}_tuned" for b in BASELINES[:7])
 PLOTTED = ("p_coll_gauss", "p_coll_mc")
+# Scored per window: the study's six headline measures (p_coll_* plus the risk
+# field, minimum distance, true TTC -- inf when no contact -- and TET).
+SCORED = HEADLINE_METRICS
 # cv: the model predicts the target (path + uncertainty), the 15 nearest
 #     neighbours roll forward at constant velocity -- defined at every window,
 #     and the study's recommended deployable risk.
@@ -245,7 +250,7 @@ def window_scenes(df, target, t_star, loader_kwargs=None):
 
 def score_windows(model, norm_stats, loader, scenes, device, batch_size=64, source="pred"):
     """One row per (window, candidate neighbour): `source` risk for the window."""
-    metrics = {name: METRICS[name] for name in PLOTTED}
+    metrics = {name: METRICS[name] for name in SCORED}
     pending = []
     for scene in scenes:
         candidates = _candidates(loader, scene, source, loader.future_frames)
@@ -263,7 +268,7 @@ def score_windows(model, norm_stats, loader, scenes, device, batch_size=64, sour
             "neighbour": out["pairs"][:, 1],
             "dist_now": np.concatenate([np.linalg.norm(c[2][1], axis=-1) for c in chunk]),
             "gt_min_dist_5s": out["gt_distance"],
-            **{name: out["scores"][name] for name in PLOTTED},
+            **{name: out["scores"][name] for name in SCORED},
         }))
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
@@ -403,6 +408,10 @@ TITLES = {
 METRIC_LABEL = {
     "p_coll_gauss": "P(overlap at the worst step, next 5 s)  [p_coll_gauss]",
     "p_coll_mc": "P(overlap at any step, next 5 s)  [p_coll_mc, Monte Carlo]",
+    "s_field_cal": "calibrated S risk field, max over the next 5 s  [s_field_cal]",
+    "min_dist": "predicted minimum distance over the next 5 s, m (lower = riskier)  [min_dist]",
+    "ttc_true": "predicted time to contact, s (lower = riskier; none = no contact)  [ttc_true]",
+    "tet": "predicted time closer than 2 m within the next 5 s, s  [tet]",
 }
 INK, INK_2, MUTED, GRID, AXIS, SURFACE = "#0b0b0b", "#52514e", "#898781", "#e1e0d9", "#c3c2b7", "#fcfcfb"
 BASE_C, TUNED_C = "#2a78d6", "#eb6834"
@@ -448,7 +457,7 @@ def plot_case(case, info, scores, truth, metric, source, path, top):
         ax = fig.add_subplot(grid[i // 4, i % 4])
         _style(ax)
         for name, colour, style in ((base, BASE_C, "-"), (f"{base}_tuned", TUNED_C, "--")):
-            series = rows[rows.model == name].set_index("t")[metric]
+            series = rows[rows.model == name].set_index("t")[metric].replace(np.inf, np.nan)
             if not len(series):
                 continue
             # Reindex on the full grid so absent windows break the line, not bridge it.
@@ -489,7 +498,8 @@ def plot_case(case, info, scores, truth, metric, source, path, top):
         f"{TITLES[case]}: vehicle {info['target']} vs {info['neighbour']}"
         f"   ({info['location']}, true min distance {info['min_dist']:.2f} m)",
         x=0.06, y=0.985, ha="left", fontsize=12, color=INK)
-    fig.text(0.06, 0.935, f"y: {METRIC_LABEL[metric]}, an uncalibrated probability.\n"
+    kind = ", an uncalibrated probability" if metric.startswith("p_coll") else ""
+    fig.text(0.06, 0.935, f"y: {METRIC_LABEL[metric]}{kind}.\n"
              f"{SOURCE_NOTE[source]}.", fontsize=9, color=INK_2, va="top")
     fig.savefig(path, dpi=130, facecolor=SURFACE, bbox_inches="tight")
     plt.close(fig)
@@ -506,7 +516,8 @@ def plot(args):
         # One y-range per source across all cases, so collision and safe compare.
         rows = pd.concat([case_rows(scores[scores.source == source], c, i)
                           for c, i in cases.items()])
-        top = max(float(rows[args.metric].max()) * 1.08, 0.05)
+        finite = rows[args.metric].replace([np.inf, -np.inf], np.nan)
+        top = max(float(finite.max()) * 1.08, 0.05)
         for case, info in cases.items():
             path = FIGURES / f"risk_timeline_{case}_{source}_{args.metric}.png"
             plot_case(case, info, scores, truth, args.metric, source, path, top)
@@ -524,7 +535,7 @@ def main(argv=None):
                       help="export raw positions around each case (lab PC, no model)")
     parser.add_argument("--models", nargs="*", default=list(MODELS))
     parser.add_argument("--out", type=Path, default=OUT)
-    parser.add_argument("--metric", choices=PLOTTED, default="p_coll_gauss",
+    parser.add_argument("--metric", choices=SCORED, default="p_coll_gauss",
                         help="--plot: which probability to draw")
     parser.add_argument("--random-weights", action="store_true",
                         help="smoke test only: no checkpoints, MEANINGLESS scores")

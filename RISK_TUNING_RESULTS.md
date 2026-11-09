@@ -431,6 +431,10 @@ unchanged from the first study's §5.5.
 
 ### 5.9 Risk over time for one vehicle
 
+> The full write-up, with bird's-eye diagrams, all six headline measures, per-model
+> tables and the case-selection procedure, is [RISK_TIMELINE.md](RISK_TIMELINE.md). This
+> section is its summary.
+
 The tables above score each (vehicle, neighbour) pair once per 1 s window. This section
 re-runs all 15 entries every **0.1 s** along one vehicle's drive. The resulting curves show
 how the predicted collision probability evolves as the vehicle approaches, passes or

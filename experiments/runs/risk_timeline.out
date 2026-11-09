@@ -1,18 +1,18 @@
 /home/st_students/.local/lib/python3.10/site-packages/matplotlib/projections/__init__.py:63: UserWarning: Unable to import Axes3D. This may be due to multiple versions of Matplotlib being installed (e.g. as a system package and as a pip package). As a result, the 3D projection is not available.
   warnings.warn("Unable to import Axes3D. This may be due to multiple versions of "
-2026-11-09 11:01:14,157 - STRAP - INFO - [NGSIMLoader] Loading cached data from /home/st_students/MTP/data/raw/ngsim/ngsim_us-101.csv
-2026-11-09 11:01:21,484 - STRAP - INFO - [NGSIMLoader] Dropping 704,000 duplicate rows (0 duplicate groups differ in other columns)
-2026-11-09 11:01:22,256 - STRAP - INFO - [NGSIMLoader] 'us-101' period 1: 1,180,598 rows, frame_id offset=0
-2026-11-09 11:01:22,281 - STRAP - INFO - [NGSIMLoader] 'us-101' period 2: 1,403,095 rows, frame_id offset=9609
-2026-11-09 11:01:22,308 - STRAP - INFO - [NGSIMLoader] 'us-101' period 3: 1,515,240 rows, frame_id offset=19680
-2026-11-09 11:01:22,309 - STRAP - INFO - [NGSIMLoader] Loading cached data from /home/st_students/MTP/data/raw/ngsim/ngsim_i-80.csv
-2026-11-09 11:01:28,645 - STRAP - INFO - [NGSIMLoader] Dropping 4 duplicate rows (0 duplicate groups differ in other columns)
-2026-11-09 11:01:29,540 - STRAP - INFO - [NGSIMLoader] 'i-80' period 1: 1,262,676 rows, frame_id offset=29708
-2026-11-09 11:01:29,569 - STRAP - INFO - [NGSIMLoader] 'i-80' period 2: 1,549,916 rows, frame_id offset=39801
-2026-11-09 11:01:29,595 - STRAP - INFO - [NGSIMLoader] 'i-80' period 3: 1,753,791 rows, frame_id offset=49668
-2026-11-09 11:01:29,849 - STRAP - INFO - [NGSIMLoader] Combined 2 locations: 8,665,316 total rows
-2026-11-09 11:01:30,139 - STRAP - INFO - [NGSIMLoader] 190 vehicles with >=80 frames
-2026-11-09 11:01:37,907 - STRAP - INFO - [NGSIMLoader] Built 15785 scenes
+2026-11-09 11:38:13,072 - STRAP - INFO - [NGSIMLoader] Loading cached data from /home/st_students/MTP/data/raw/ngsim/ngsim_us-101.csv
+2026-11-09 11:38:20,382 - STRAP - INFO - [NGSIMLoader] Dropping 704,000 duplicate rows (0 duplicate groups differ in other columns)
+2026-11-09 11:38:21,177 - STRAP - INFO - [NGSIMLoader] 'us-101' period 1: 1,180,598 rows, frame_id offset=0
+2026-11-09 11:38:21,202 - STRAP - INFO - [NGSIMLoader] 'us-101' period 2: 1,403,095 rows, frame_id offset=9609
+2026-11-09 11:38:21,228 - STRAP - INFO - [NGSIMLoader] 'us-101' period 3: 1,515,240 rows, frame_id offset=19680
+2026-11-09 11:38:21,230 - STRAP - INFO - [NGSIMLoader] Loading cached data from /home/st_students/MTP/data/raw/ngsim/ngsim_i-80.csv
+2026-11-09 11:38:27,678 - STRAP - INFO - [NGSIMLoader] Dropping 4 duplicate rows (0 duplicate groups differ in other columns)
+2026-11-09 11:38:28,578 - STRAP - INFO - [NGSIMLoader] 'i-80' period 1: 1,262,676 rows, frame_id offset=29708
+2026-11-09 11:38:28,607 - STRAP - INFO - [NGSIMLoader] 'i-80' period 2: 1,549,916 rows, frame_id offset=39801
+2026-11-09 11:38:28,631 - STRAP - INFO - [NGSIMLoader] 'i-80' period 3: 1,753,791 rows, frame_id offset=49668
+2026-11-09 11:38:28,890 - STRAP - INFO - [NGSIMLoader] Combined 2 locations: 8,665,316 total rows
+2026-11-09 11:38:29,188 - STRAP - INFO - [NGSIMLoader] 190 vehicles with >=80 frames
+2026-11-09 11:38:37,058 - STRAP - INFO - [NGSIMLoader] Built 15785 scenes
 collision: 1102724 vs 1102706, t*=8124, min 1.67 m, placement 0.909, 91 windows, 17 rejected
 device: cuda
 INATran: 173,381 parameters
@@ -74,8 +74,8 @@ device: cuda
 XTrack: 166,405 parameters
   x_track_tuned / cv: 1365 rows
   x_track_tuned / pred: 724 rows
-2026-11-09 11:01:54,801 - STRAP - INFO - [NGSIMLoader] 190 vehicles with >=80 frames
-2026-11-09 11:02:02,482 - STRAP - INFO - [NGSIMLoader] Built 15509 scenes
+2026-11-09 11:38:54,181 - STRAP - INFO - [NGSIMLoader] 190 vehicles with >=80 frames
+2026-11-09 11:39:01,917 - STRAP - INFO - [NGSIMLoader] Built 15509 scenes
 missed: 1102724 vs 1102714, t*=8084, min 1.81 m, placement 0.695, 91 windows, 13 rejected
 device: cuda
 INATran: 173,381 parameters
@@ -139,8 +139,8 @@ device: cuda
 XTrack: 166,405 parameters
   x_track_tuned / cv: 1365 rows
   x_track_tuned / pred: 665 rows
-2026-11-09 11:02:17,499 - STRAP - INFO - [NGSIMLoader] 191 vehicles with >=80 frames
-2026-11-09 11:02:25,204 - STRAP - INFO - [NGSIMLoader] Built 15718 scenes
+2026-11-09 11:39:17,210 - STRAP - INFO - [NGSIMLoader] 191 vehicles with >=80 frames
+2026-11-09 11:39:24,915 - STRAP - INFO - [NGSIMLoader] Built 15718 scenes
 near_miss: 1102724 vs 1102704, t*=8111, min 2.10 m, placement 0.729, 91 windows, 0 rejected
 device: cuda
 INATran: 173,381 parameters

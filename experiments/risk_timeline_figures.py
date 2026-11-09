@@ -152,6 +152,73 @@ def fig_overview(scores, truth, cases):
     _save(fig, "overview")
 
 
+METRIC_ROWS = (  # name, axis label, riskier direction
+    ("p_coll_gauss", "p_coll_gauss\nprobability", "up"),
+    ("p_coll_mc", "p_coll_mc\nprobability", "up"),
+    ("s_field_cal", "s_field_cal\nfield value", "up"),
+    ("min_dist", "min_dist\nm", "down"),
+    ("ttc_true", "ttc_true, s\ngap = no contact\nclipped at 5 s", "down"),
+    ("tet", "tet\ns below 2 m", "up"),
+)
+
+
+def fig_metrics(scores, truth, cases, source):
+    """Six headline risk measures x five cases: median and IQR across the
+    baselines and across the tuned models, one y-range per measure."""
+    metrics = [m for m in METRIC_ROWS if m[0] in scores.columns]
+    fig, axes = plt.subplots(len(metrics) + 1, 5, figsize=(17, 2.1 * (len(metrics) + 1)),
+                             facecolor=SURFACE, sharex=True,
+                             gridspec_kw={"hspace": 0.18, "wspace": 0.1})
+    for i, (metric, label, riskier) in enumerate(metrics):
+        top = 0.0
+        for j, case in enumerate(CASES):
+            ax = axes[i, j]
+            _style(ax)
+            rows = _pair(scores, case, cases[case], source)
+            if rows.empty:
+                ax.text(0.5, 0.5, "never scored", transform=ax.transAxes, ha="center",
+                        va="center", fontsize=8, color=MUTED)
+            else:
+                wide = _wide(rows.replace([np.inf, -np.inf], np.nan), metric)
+                for group, colour, style in ((BASELINES, BASE_C, "-"), (TUNED, TUNED_C, "--")):
+                    block = wide.loc[list(group)]
+                    q1, med, q3 = (block.quantile(q) for q in (0.25, 0.5, 0.75))
+                    ax.fill_between(GRID_T, q1, q3, color=colour, alpha=0.18, linewidth=0)
+                    ax.plot(GRID_T, med, color=colour, linestyle=style, linewidth=1.8)
+                    if q3.notna().any():
+                        top = max(top, float(np.nanmax(q3.to_numpy())))
+            if i == 0:
+                ax.set_title(SHORT[case], fontsize=10, color=INK, loc="left")
+            if j:
+                ax.tick_params(labelleft=False)
+        for ax in axes[i]:
+            # ttc_true can exceed the 5 s horizon by orders of magnitude; clip there.
+            ax.set_ylim(0, 5.0 if metric == "ttc_true" else (top * 1.08 if top > 0 else 1))
+        arrow = "↑ riskier" if riskier == "up" else "↓ riskier"
+        axes[i, 0].set_ylabel(f"{label}\n{arrow}", color=INK_2, fontsize=8)
+    for j, case in enumerate(CASES):
+        info = cases[case]
+        ax = axes[-1, j]
+        _style(ax)
+        d = truth[(truth.case == info.get("from_window", case))
+                  & (truth.neighbour == info["neighbour"])].sort_values("t")
+        ax.plot(d.t, d.dist, color=INK, linewidth=1.6)
+        ax.axhline(LABEL_DIST, color=INK_2, linewidth=0.9, linestyle="--")
+        ax.set_ylim(0, 60)
+        ax.set_xlabel("time (s)", color=INK_2, fontsize=9)
+        if j:
+            ax.tick_params(labelleft=False)
+    axes[-1, 0].set_ylabel("true distance\nm", color=INK_2, fontsize=8)
+    handles = [plt.Line2D([], [], color=BASE_C, linewidth=2, label="8 baselines: median, IQR band"),
+               plt.Line2D([], [], color=TUNED_C, linewidth=2, linestyle="--",
+                          label="7 tuned: median, IQR band")]
+    fig.legend(handles=handles, loc="upper right", frameon=False, fontsize=9, ncol=2,
+               bbox_to_anchor=(0.99, 0.915), labelcolor=INK_2)
+    fig.suptitle(f"Six risk measures over time, vehicle 1102724, source {source}",
+                 x=0.07, y=0.915, ha="left", fontsize=12, color=INK)
+    _save(fig, f"metrics_{source}")
+
+
 def fig_heatmap(scores, cases):
     """Every model x every 0.1 s window, one panel per case, one colour scale."""
     wides = {c: _wide(_pair(scores, c, cases[c])) for c in CASES}
@@ -346,6 +413,8 @@ def main():
     fig_gauss_vs_mc(scores, cases)
     fig_birdseye(tracks, scores, truth, cases)
     fig_geometry(tracks, cases)
+    for source in ("cv", "pred"):
+        fig_metrics(scores, truth, cases, source)
     print(table.groupby(["case", "source"])[["coverage", "peak", "first_ge_0.1", "p_at_0"]]
           .median().round(3).to_string())
     return 0

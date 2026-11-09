@@ -18,6 +18,7 @@ The detailed write-ups for individual stages are linked where they apply:
 | Risk-measure literature | [RISK_PREDICTION_METHODOLOGIES.md](RISK_PREDICTION_METHODOLOGIES.md) |
 | Risk prediction study | [RISK_PREDICTION_RESULTS.md](RISK_PREDICTION_RESULTS.md) |
 | Tuning study | [RISK_TUNING_RESULTS.md](RISK_TUNING_RESULTS.md) |
+| Risk over time for one vehicle | [RISK_TIMELINE.md](RISK_TIMELINE.md) |
 
 ---
 
@@ -34,9 +35,10 @@ The detailed write-ups for individual stages are linked where they apply:
 9. [Experiment 7: Collision-label profiling](#experiment-7-collision-label-profiling-1-november)
 10. [Experiment 8: Risk prediction from trajectory predictions](#experiment-8-risk-prediction-from-trajectory-predictions-1-november)
 11. [Experiment 9: Hyperparameter tuning and its effect on risk](#experiment-9-hyperparameter-tuning-and-its-effect-on-risk-68-november)
-12. [What the experiments say together](#what-the-experiments-say-together)
-13. [Making the research methodology stronger](#making-the-research-methodology-stronger)
-14. [Appendix: papers referenced](#appendix-papers-referenced)
+12. [Experiment 10: Risk over time for one vehicle](#experiment-10-risk-over-time-for-one-vehicle-9-november)
+13. [What the experiments say together](#what-the-experiments-say-together)
+14. [Making the research methodology stronger](#making-the-research-methodology-stronger)
+15. [Appendix: papers referenced](#appendix-papers-referenced)
 
 ---
 
@@ -707,6 +709,39 @@ on the change)
   dacr_amtp's.
 - The `pred` source carries the off-distribution caveat from Experiment 8.
 - Wall-clock times reflect a shared GPU.
+
+---
+
+## Experiment 10: Risk over time for one vehicle (9 November)
+
+**Question.** The professor asked how a model's risk evolves over time for one vehicle, in
+collision, no-collision and other cases. Earlier studies give one number per pair per
+1 s window.
+
+**Setup** (details in [RISK_TIMELINE.md](RISK_TIMELINE.md)):
+- All 15 entries (8 baselines + 7 tuned) re-run every 0.1 s from −8 s to +1 s around
+  each encounter.
+- Six headline measures, scored under both `cv` and `pred`.
+- Cases picked from the committed `pred` placements, after filtering out duplicate and
+  impossible tracks.
+- The vehicle is motorcycle 1102724 on US-101, filtering between lanes. Its five
+  encounters: a detected collision, a missed collision, a near miss, a safe neighbour
+  and a false alarm.
+
+**Findings.**
+1. **The risk value is not standardised, and only four measures are probabilities.**
+   Those four are uncalibrated.
+2. **Warning time is capped by when the pair is scored.** That is −4.4 s under `cv` (when
+   the car enters the 15 nearest) and −1.2 s under `pred`, not the model's horizon.
+3. **The probabilities raise a false alarm from the predicted spread.**
+   - A same-lane car 9 m behind outscores the real collision for 10 of 15 models under
+     `cv`.
+   - Mean-path measures (`min_dist`, `tet`, `ttc_true`) rate it safe, but over-call the
+     2.10 m near miss.
+4. **Under `pred` only inatran and cognitive keep the false alarm near 0** (0.006) while
+   flagging the collision. That matches their aggregate `pred` lead.
+5. **The 2 m "collisions" here are side-by-side passes** in which the boxes never touch.
+   This is the surrogate-label caveat made visible.
 
 ---
 
