@@ -31,6 +31,11 @@ Section numbers like "§2.1b" refer to RISK_PREDICTION_RESULTS.md.
   first study (§6 item 13).
 - **traj_mamba** was stopped by request at 20 of 30 trials. It was not retrained, and it
   appears below only as a baseline.
+- **Added later: STGAT-EDGRU (§10).** It was tuned with the same protocol as an eighth
+  model. RMSE improves by 4.0 % (2.147 → 2.060 m), and its `pred` risk at < 2 m does
+  *not* fall (+0.002 [−0.006, +0.011]). It is the one exception to the finding above, but
+  the zero is a cancellation: σ-based measures and calibration still get worse. §§1–9 keep
+  the seven-model numbers as published.
 
 ---
 
@@ -673,3 +678,89 @@ the baseline models.
 | comparison tables | `experiments/comparison_tuned_{rmse, risk, ranking, pred_gain, stratified, calibration, oracle}.csv` |
 | figures: ROC per source × headline measure × label, forest plots | `experiments/figures/` (38 PNGs) |
 | run logs | `experiments/runs/tune_g{1,2,3}.out`, `risk_v2_base.out`, `risk_v2_tuned.out` |
+
+---
+
+## 10. Addendum: STGAT-EDGRU, an eighth tuned model
+
+STGAT-EDGRU (Su, Wang & Wang, Electronics 2025) was added to the benchmark after this study.
+The full write-up is [STGAT_EDGRU.md](STGAT_EDGRU.md), with tuning in its §6. It was tuned
+with exactly the protocol of §2: 30 trials, a 25 % subset, validation RMSE, the median
+pruner, and a full-data retrain. Its rows below sit beside the tables of §§3–5, which are
+left as published for the seven models.
+
+**Search (§3 format):**
+
+| model | lr | lr decay | batch | weight decay | epochs | dropout | complete / pruned | best trial | subset val RMSE | retrain min |
+|---|---|---|---|---|---|---|---|---|---|---|
+| stgat_edgru | 5.33e-4 | 0.871 | 64 | 8.6e-6 | 28 | 0.083 (default 0.2) | 7 / 23 | 18 | 2.0858 | ≈ 240 |
+
+It is the same fix as the others: the decay slows from 0.6 to 0.87 and training runs 28
+epochs instead of 12. Like inatran, it keeps the default learning rate (1.07×). The retrain
+was interrupted at epoch 19 by two reboots of the box and resumed from `last_checkpoint.pt`
+(§2.1). The resume path therefore worked in a real failure, not just in the kill test.
+
+**Trajectory accuracy (§4 format):**
+
+| model | baseline rmse_avg | tuned | change | baseline 5 s | tuned 5 s | best epoch: baseline → tuned |
+|---|---|---|---|---|---|---|
+| stgat_edgru | 2.1465 | 2.0597 | −4.0 % | 4.247 | 4.107 | 12/12 → 28/28 |
+
+That puts it 8th of 48 in `comparison_rmse.csv`: last of the eight tuned models, and ahead of
+every untuned one.
+
+**Headline risk change (§5.2 format):**
+
+| model | RMSE change | `pred` | `cv_scene` (matched control) | `cv` |
+|---|---|---|---|---|
+| stgat_edgru | −4.0 % | +0.002 [−0.006, +0.011] | +0.002 [−0.002, +0.006] | −0.001 [−0.004, +0.003] |
+
+At < 3 m it is **−0.017** [−0.020, −0.014] under `pred`.
+
+**Per measure under `pred` (§5.3 format):** `p_coll_gauss` −0.012, `p_coll_mc` −0.010,
+`s_field_cal` **+0.009**, `min_dist` **+0.020**, `ttc_true` −0.003, `tet` +0.007.
+
+**How it compares with the seven:**
+- **The headline holds for six measures and breaks for one model.** At < 2 m it is the only
+  tuned model whose `pred` headline did not fall. That is not because tuning left its
+  neighbour predictions alone:
+  - The σ-based measures fall, as in every other model, but here not significantly.
+  - The position measures gain significantly, which no other tuned model managed on any
+    headline measure.
+  - Calibration worsens more than in any of the seven. The `p_coll_gauss` Brier skill falls
+    from −8.0 to −15.3, the share of pairs with p > 0.1 rises from 5.0 % to 7.2 %, and pairs
+    above 0.9 double.
+- **It fits §6's pattern.** The models whose learning rate moved least lost least: inatran
+  (1.07×) lost −0.018, and STGAT-EDGRU (1.07×) lost nothing. With eight models this is still
+  only suggestive.
+- **Ranking (§5.4), with 17 entries:**
+  - At < 2 m, stgat_edgru_tuned is 15th (0.736 [0.691, 0.789]) and stgat_edgru 16th (0.734),
+    both above x_track_tuned.
+  - At < 3 m the tuned version is last of 17 (0.629).
+  - The two STGAT entries do not change the conclusion that RMSE and `pred` risk are
+    unrelated or inversely related. Spearman was not recomputed with them.
+- **Neighbour gap (§5.5):** `pred − cv_scene` is −0.194 both before and after tuning, the
+  second-widest gap after x_track_tuned (−0.202). It is the one model whose gap did not widen.
+
+**Timeline (§5.9).** On the five encounters, the tuned model gives the false alarm the lowest
+`cv` peak of any model (0.003) and the highest `pred` peak (0.796). The per-model case
+figures now carry a STGAT-EDGRU panel. See [RISK_TIMELINE.md](RISK_TIMELINE.md) §13.
+
+**Reproduce:**
+
+```bash
+# box
+python3 experiments/tune_top.py stgat_edgru 2>&1 | tee -a experiments/runs/tune_stgat.out
+python3 experiments/score_risk.py stgat_edgru_tuned --sources cv,oracle,cv_scene,pred     --out experiments/results/risk_v2
+python3 experiments/plot_risk_timeline.py --score
+# local, after pulling
+python experiments/compare_tuned.py --models dacr_amtp stdan inatran cognitive mha_lstm     miat x_track traj_mamba stgat_edgru --out <scratch dir>   # keeps the committed seven-model CSVs
+```
+
+**Artifacts:**
+- `experiments/results/stgat_edgru_tuned.json`
+- `experiments/checkpoints/stgat_edgru_tuned/`
+- `experiments/tuning/stgat_edgru/`
+- `experiments/results/risk_v2/stgat_edgru_tuned.*`
+- logs `experiments/runs/tune_stgat.out`, `score_stgat_tuned.out` and
+  `timeline_stgat_tuned.out`

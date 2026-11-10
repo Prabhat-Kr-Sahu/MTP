@@ -799,13 +799,27 @@ fused over the horizon and the neighbours.
    10 cases, with leads spread from −3 to +9 s. The repo's `p_coll_gauss` on the same
    predictions leads in 10 of 10. Any 5 s-ahead measure leads a current-frame surrogate.
 6. **The CRI's one strength is ordering on the timeline.** On the Experiment 10 vehicle under
-   `cv`, both CRIs score all three real events above the false alarm in every one of 16
-   models (`p_coll_gauss`: 3 of 16). But they saturate near 0.5 on every event, so they
+   `cv`, both CRIs score all three real events above the false alarm in every one of 17
+   models (`p_coll_gauss`: 4 of 17). But they saturate near 0.5 on every event, so they
    cannot tell a collision from a near miss.
 7. **Under `pred`, STGAT-EDGRU ranks 15th of 16** (headline ROC-AUC 0.734 at < 2 m). On the
-   timeline it gives the false alarm 0.727, the highest of any model. This is the
-   Experiment 9 lesson again: ordinary RMSE, poor risk when the model predicts both
-   vehicles.
+   timeline it gives the false alarm 0.727, the highest of any model; the tuned version gives
+   0.796. This is the Experiment 9 lesson again: ordinary RMSE, poor risk when the model
+   predicts both vehicles.
+8. **Tuning helps RMSE and leaves `pred` risk flat at < 2 m: the one exception to
+   Experiment 9.**
+   - With the Experiment 9 protocol (30 trials; best: lr ×1.07, decay 0.87, 28 epochs), RMSE
+     falls 4.0 % to 2.060 m, 8th of 48.
+   - `pred` headline ROC-AUC moves +0.002 [−0.006, +0.011]. The seven Experiment 9 models
+     all lost 0.018–0.082.
+   - The flat result is a cancellation. `min_dist` (+0.020) and `s_field_cal` (+0.009) gain,
+     while `p_coll_gauss` and `p_coll_mc` lose about 0.01, and the Brier skill falls from
+     −8.0 to −15.3.
+   - At < 3 m it falls (−0.017) and ranks last of 17.
+   - It kept the default learning rate, like inatran, the other least-hurt model.
+     Experiment 9's "less schedule change, less loss" pattern now has one more data point.
+   - Details: [STGAT_EDGRU.md](STGAT_EDGRU.md) §6, [RISK_TUNING_RESULTS.md](RISK_TUNING_RESULTS.md)
+     §10, [RISK_TIMELINE.md](RISK_TIMELINE.md) §13.
 
 ---
 
@@ -828,8 +842,9 @@ fused over the horizon and the neighbours.
    model predicts the neighbours too (Experiment 8). It is statistically supported once the
    CIs are paired and event-clustered, and its relation to RMSE is negative (Experiment 9).
 6. **Predicted neighbours hurt risk, and RMSE tuning makes it worse** (Experiments 8 and 9).
-   The best deployable configuration measured is the model's target prediction with
-   constant-velocity neighbours.
+   The one exception is STGAT-EDGRU, which is flat at < 2 m and worse at < 3 m
+   (Experiment 11). The best deployable configuration measured is the model's target
+   prediction with constant-velocity neighbours.
 7. **The labels are thin.** About 100 independent events, a third of them tracking artefacts,
    mostly side-by-side encounters (Experiment 7). Every risk number is a surrogate-label
    agreement, not crash prediction.

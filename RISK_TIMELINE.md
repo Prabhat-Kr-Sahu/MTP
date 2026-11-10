@@ -49,10 +49,10 @@ five different neighbours.
   - At that offset the vehicles' boxes never touch, so box-overlap risk peaks 1–4 s
     *before* the pass, while the predicted paths still converge (§4).
 - **Added later: STGAT-EDGRU and its Collision Risk Index (§13, [STGAT_EDGRU.md](STGAT_EDGRU.md)).**
-  - Under `cv` it gives the false alarm the lowest value of any model (0.022). Under `pred`
-    it gives it the highest (0.727).
+  - Under `cv` it gives the false alarm the lowest value of any model (0.022, tuned 0.003).
+    Under `pred` it gives it the highest (0.727, tuned 0.796).
   - The CRI (paper and fixed versions) scores all three events above the false alarm in
-    every model under `cv`, which `p_coll_gauss` does in 3 of 16. But it saturates near
+    every model under `cv`, which `p_coll_gauss` does in 4 of 17. But it saturates near
     0.5 on all three events, so it cannot tell a collision from a near miss.
   - The 15-model results above are unchanged.
 
@@ -599,14 +599,17 @@ The five cases are unchanged:
   `plot_risk_timeline.py`), so adding a model cannot move them.
 - Rescoring with the CRI columns reproduced every one of the 15 models' 93,480 existing
   values exactly.
-- Every figure and table in §§1–12 is still drawn from those 15 models only.
+- Every table and summary figure in §§1–12 is still drawn from those 15 models only. The
+  one exception is the per-model case figures in §6, which gain a STGAT-EDGRU panel (see
+  the end of this section); their other eight panels are unchanged.
 
 ![STGAT-EDGRU and the CRI, cv](experiments/figures/risk_timeline_doc_stgat_cv.png)
 
 ![STGAT-EDGRU and the CRI, pred](experiments/figures/risk_timeline_doc_stgat_pred.png)
 
-*Grey: median and IQR band of the 15 study models. Purple: STGAT-EDGRU. Rows: `p_coll_gauss`,
-the two CRIs, true distance.*
+*Grey: median and IQR band of the 15 study models. Purple: STGAT-EDGRU (solid) and
+STGAT-EDGRU tuned (dashed, [RISK_TUNING_RESULTS.md](RISK_TUNING_RESULTS.md) §10). Rows:
+`p_coll_gauss`, the two CRIs, true distance.*
 
 **Peak values per case**, STGAT-EDGRU against the 15 study models (median [range]):
 
@@ -622,20 +625,40 @@ the two CRIs, true distance.*
 | false alarm | cv | **0.022** | 0.217 [0.027, 0.296] | 0.016 | 0.077 [0.025, 0.113] | 0.013 | 0.169 [0.010, 0.251] |
 | | pred | **0.727** | 0.278 [0.006, 0.571] | 0.151 | 0.151 [0.002, 0.390] | 0.522 | 0.225 [0.003, 0.496] |
 
+**The tuned model** (`stgat_edgru_tuned`), peaks, baseline → tuned:
+
+| case | source | `p_coll_gauss` | `cri_paper` | `cri_fixed` |
+|---|---|---|---|---|
+| collision (detected) | cv | 0.240 → 0.282 | 0.136 → 0.155 | 0.516 → 0.520 |
+| | pred | 0.268 → 0.376 | 0.332 → 0.267 | 0.514 → 0.538 |
+| collision (missed) | cv | 0.069 → 0.105 | 0.240 → 0.202 | 0.507 → 0.509 |
+| | pred | 0.054 → **0.998** (at +0.4 s) | 0.161 → 0.226 | 0.521 → 0.561 |
+| near miss | cv | 0.095 → **0.016** | 0.147 → 0.157 | 0.526 → 0.524 |
+| | pred | 0.123 → 0.036 | 0.276 → 0.255 | 0.503 → 0.512 |
+| no collision (safe) | cv | 0.000 → 0.000 | 0.000 → 0.000 | 0.000 → 0.000 |
+| false alarm | cv | 0.022 → **0.003** | 0.016 → 0.001 | 0.013 → 0.004 |
+| | pred | 0.727 → **0.796** | 0.151 → 0.137 | 0.522 → 0.529 |
+
 What this adds:
-1. **STGAT-EDGRU is the extreme case of §7's split between sources.**
-   - Under `cv` it gives the false alarm 0.022, the lowest of all 16 models, while flagging
-     the collision at 0.240.
-   - Under `pred` it gives the false alarm **0.727**, the highest of all 16 (x_track_tuned had
-     0.571), from −8 s. It predicts the following car into the motorcycle.
-   - This is its aggregate result on one vehicle: mid-table under `cv`, 15th of 16 under
-     `pred` (STGAT_EDGRU.md §5).
+1. **STGAT-EDGRU is the extreme case of §7's split between sources, and tuning sharpens
+   it.**
+   - Under `cv` it gives the false alarm 0.022, lower than all 15 study models, while
+     flagging the collision at 0.240. The tuned version goes lower
+     still, to 0.003, and raises the collision to 0.282.
+   - Under `pred` it gives the false alarm **0.727**, higher than all 15 study models
+     (x_track_tuned had 0.571), from −8 s. It predicts the following car into the
+     motorcycle. The tuned version gives 0.796.
+   - The tuned `p_coll_gauss` is sharper in both directions: it drops the near miss to 0.016
+     under `cv` (the median model gives 0.178), and under `pred` it jumps to 0.998 on the
+     missed collision, but only at +0.4 s, after the closest approach.
+   - This is its aggregate result on one vehicle: mid-table under `cv`, 15th–16th of 17
+     under `pred` (STGAT_EDGRU.md §5–6).
 2. **Under `cv`, the CRI never confuses the false alarm with an event, for any model.**
-   - In all 16 models, both CRIs score each of the three events above the false alarm.
+   - In all 17 models, both CRIs score each of the three events above the false alarm.
      `cri_fixed` peaks at 0.48–0.55 on every event, and at most 0.25 on the false alarm.
-   - `p_coll_gauss` manages this in only 3 of 16 models (STGAT-EDGRU, x_track_tuned and
-     stdan_tuned). It scored the false alarm at least as high as the collision in 10 of 15
-     (§7).
+   - `p_coll_gauss` manages this in only 4 of 17 models (STGAT-EDGRU and its tuned version,
+     x_track_tuned and stdan_tuned). It scored the false alarm at least as high as the
+     collision in 10 of 15 (§7).
    - Two parts of the CRI do this. It averages over the horizon (α1 · mean + α2 · max), so a
      risk that exists only in the widened 5 s tail counts less. And `cri_fixed`'s intensity
      is near zero for a car at the motorcycle's own speed.
@@ -647,7 +670,14 @@ What this adds:
    - It separates "close encounter" from "not", not "collision" from "near miss".
 4. **Under `pred` the CRI's advantage shrinks.** The false-alarm range reaches 0.39
    (`cri_paper`) and 0.50 (`cri_fixed`), as high as the events. When the model predicts the
-   following car into the motorcycle, every measure follows it.
+   following car into the motorcycle, every measure follows it. All three events still beat
+   the false alarm in 15 of 17 models for `cri_paper` and 14 of 17 for `cri_fixed`, against
+   6 of 17 for `p_coll_gauss`.
+
+The per-model panels of the case figures (§6, `risk_timeline_<case>_<source>_<metric>.png`)
+now carry a ninth panel for STGAT-EDGRU, baseline and tuned. Plot either CRI there with
+`plot_risk_timeline.py --plot --metric cri_fixed` (or `cri_paper`); those figures are
+committed too.
 
 Reproduce: `plot_risk_timeline.py --score` on the box (all models, or `--models stgat_edgru`
 with the existing CSVs), then `risk_timeline_figures.py` locally. The per-model peaks,

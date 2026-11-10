@@ -84,7 +84,11 @@ The Collision Risk Index (CRI) is implemented twice:
   - The Eq. 30 circle (≈ 4.5–5 m for two cars) is far larger than a 2 m near-collision. In
     congested traffic, many safe followers stay inside it for the whole horizon and outrank
     the real near-collisions.
-- **Tuning (R):** see §6.
+- **Tuning (R) cut RMSE by 4.0 % (2.147 → 2.060 m) and left `pred` risk unchanged at
+  < 2 m** (+0.002 [−0.006, +0.011]), the only one of eight tuned models not to lose.
+  - That is a cancellation: position measures gain and σ-based measures lose, and the
+    calibration gets much worse (Brier skill −8.0 → −15.3).
+  - At < 3 m it falls (−0.017) and ranks last of 17 (§6).
 
 ---
 
@@ -397,7 +401,111 @@ same as every other model. Under `pred` it is 0.0185, level with x_track and x_t
 
 ## 6. Tuning (R)
 
-*Filled in when the Optuna study finishes.*
+The same protocol as the seven tuned models
+([RISK_TUNING_RESULTS.md](RISK_TUNING_RESULTS.md) §2): `tune_top.py stgat_edgru`, Optuna TPE
+with seed 42, and 30 finished trials, each trained on a fixed 25 % of the train split. The
+objective is minimum validation RMSE. A median pruner stops weak trials early. The best
+setting is then retrained once on the full train split, and the test split is read once.
+Dropout is in the search, because the notebook uses it.
+
+**Search result.** 7 trials completed and 23 were pruned. The best was trial 18, with a
+subset validation RMSE of 2.0858.
+
+| | lr | lr decay | batch | weight decay | epochs | dropout |
+|---|---|---|---|---|---|---|
+| default | 5.0e-4 | 0.600 | 128 | 1.0e-5 | 12 | 0.2 |
+| **tuned** | 5.33e-4 | 0.871 | 64 | 8.6e-6 | 28 | 0.083 |
+
+As with the other seven models, the fix is the schedule. The learning rate barely moves
+(1.07×, as in inatran), but its decay slows from 0.6 to 0.87 per epoch and training runs
+28 epochs instead of 12. Dropout falls to 0.08.
+
+**About 15.5 h on the DSLab GPU, from the first data load to the tuned checkpoint.** The
+search took about 10.7 h (22:22 to 09:04), and the full-data retrain about 4.3 h at 8.5 min
+per epoch, including a 30 min restart. The box rebooted twice during the retrain (11:47 and
+12:10 IST on 10 November) and killed it at epoch 19 of 28. Rerunning `tune_top.py` continued
+the retrain from `checkpoints/stgat_edgru_tuned/last_checkpoint.pt` at epoch 20. The
+`train_minutes` of 74.8 in `results/stgat_edgru_tuned.json` therefore counts only the
+resumed session.
+
+### 6.1 Trajectory accuracy
+
+Test split, 121,130 samples. RMSE in metres.
+
+| | 1 s | 2 s | 3 s | 4 s | 5 s | avg | best epoch |
+|---|---|---|---|---|---|---|---|
+| baseline | 0.448 | 1.116 | 1.943 | 2.979 | 4.247 | 2.1465 | 12 / 12 |
+| **tuned** | **0.416** | **1.057** | **1.855** | **2.864** | **4.107** | **2.0597** | 28 / 28 |
+| change | −7.2 % | −5.3 % | −4.5 % | −3.9 % | −3.3 % | **−4.0 %** | |
+
+- **Accuracy:** −4.0 % is in the middle of the other seven models' range (−2.1 to −5.2 %).
+  At 2.060 m the tuned model ranks 8th of 48 in `comparison_rmse.csv`, last of the eight
+  tuned models and ahead of every untuned one.
+- **The best epoch is still the last one** (28 of 28), so a longer schedule might gain a
+  little more.
+- **Cost of the extra accuracy:** the tuned models have about 30× the training budget of
+  the untuned ones. STGAT-EDGRU also has 3–5× their parameters (713,733).
+
+### 6.2 Risk: no change at < 2 m, worse at < 3 m
+
+Change in the mean headline ROC-AUC (tuned − baseline), with the paired 95 %
+event-bootstrap CI. Bold means the CI excludes zero.
+
+| label | `pred` | `cv_scene` | `cv` |
+|---|---|---|---|
+| < 2 m | +0.002 [−0.006, +0.011] | +0.002 [−0.002, +0.006] | −0.001 [−0.004, +0.003] |
+| < 3 m | **−0.017** [−0.020, −0.014] | **−0.009** [−0.011, −0.008] | **−0.011** [−0.013, −0.010] |
+
+**At < 2 m, STGAT-EDGRU is the only tuned model whose `pred` risk does not fall.** All seven
+others lost 0.018–0.082, every one with a CI excluding zero. The net zero is a cancellation,
+not immunity. Per measure (`pred`, < 2 m, ROC-AUC, bold = paired CI excludes zero):
+
+| `p_coll_gauss` | `p_coll_mc` | `s_field_cal` | `min_dist` | `ttc_true` | `tet` | `cri_paper` | `cri_fixed` |
+|---|---|---|---|---|---|---|---|
+| −0.012 | −0.010 | **+0.009** | **+0.020** | −0.003 | +0.007 | **−0.017** | +0.001 |
+
+- **What gains:** the position measures (`min_dist`, `s_field_cal`), from better predicted
+  positions.
+- **What loses:** the measures that use predicted σ (`p_coll_gauss`, `p_coll_mc`,
+  `cri_paper`). These are the ones that fell in all seven other tuned models.
+- **Calibration got much worse.** Under `pred`, the `p_coll_gauss` Brier skill score falls
+  from −8.0 to −15.3. The share of pairs above p = 0.1 rises from 5.0 % to 7.2 %. Pairs
+  above 0.9 double, from 4,879 to 10,376. The tuned model is more confident and wrong
+  more often, the same false-alarm pattern as in RISK_TUNING_RESULTS.md §5.8.
+
+**Ranking under `pred`** (17 entries: the 15 of the tuned study plus both STGAT versions):
+
+| label | stgat_edgru | stgat_edgru_tuned | below them |
+|---|---|---|---|
+| < 2 m | 16th (0.734) | 15th (0.736 [0.691, 0.789]) | x_track_tuned (0.723) |
+| < 3 m | 15th (0.646) | **17th** (0.629) | none |
+
+**Predicted vs constant-velocity neighbours** (`pred − cv_scene`, headline mean, < 2 m):
+−0.194 [−0.236, −0.150] baseline and −0.194 [−0.232, −0.152] tuned. That gap is the
+second largest of any model, after x_track_tuned (−0.202), and tuning leaves it unchanged.
+The other seven models' gaps all widened with tuning.
+
+**The CRI under tuning.** On `cv` and `cv_scene` both CRIs rise by 0.001–0.004, with the
+better target path; three of the four changes are significant, but all are tiny. Under
+`pred`, `cri_paper` falls by 0.017 while `cri_fixed` is flat. In R the two differ only in the
+intensity term (§5.2), so the loss comes from the paper's same-speed weighting applied to
+the tuned model's predicted speeds. Both CRIs' PR-AUC stays at 0.002–0.006 on every
+source.
+
+**Reading.** This fits the tuned study's §6 pattern: the models whose schedule changed
+least lost least. STGAT-EDGRU kept the default learning rate, like inatran, one of the two
+models that lost least of those seven (−0.018, with cognitive). But with only eight tuned models, this remains suggestive.
+
+It also starts near the bottom (16th of 17), which leaves less room to fall. At < 3 m,
+where the probability measures carry more weight, it falls like the others and ends last.
+
+The case-level effect is in [RISK_TIMELINE.md](RISK_TIMELINE.md) §13. The tuned model gives
+the false alarm 0.003 under `cv`, lower than any other model, and 0.796 under `pred`,
+higher than any other.
+
+Tables: `compare_tuned.py --models dacr_amtp stdan inatran cognitive mha_lstm miat x_track
+traj_mamba stgat_edgru --out <dir>`. Use a separate `--out` so the committed seven-model
+`comparison_tuned_*.csv` stay as published.
 
 ---
 
