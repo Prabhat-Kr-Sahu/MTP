@@ -1,0 +1,228 @@
+/home/st_students/.local/lib/python3.10/site-packages/matplotlib/projections/__init__.py:63: UserWarning: Unable to import Axes3D. This may be due to multiple versions of Matplotlib being installed (e.g. as a system package and as a pip package). As a result, the 3D projection is not available.
+  warnings.warn("Unable to import Axes3D. This may be due to multiple versions of "
+2026-11-10 14:30:33,231 - STRAP - INFO - [NGSIMLoader] Loading cached data from /home/st_students/MTP/data/raw/ngsim/ngsim_us-101.csv
+2026-11-10 14:30:40,605 - STRAP - INFO - [NGSIMLoader] Dropping 704,000 duplicate rows (0 duplicate groups differ in other columns)
+2026-11-10 14:30:41,377 - STRAP - INFO - [NGSIMLoader] 'us-101' period 1: 1,180,598 rows, frame_id offset=0
+2026-11-10 14:30:41,401 - STRAP - INFO - [NGSIMLoader] 'us-101' period 2: 1,403,095 rows, frame_id offset=9609
+2026-11-10 14:30:41,428 - STRAP - INFO - [NGSIMLoader] 'us-101' period 3: 1,515,240 rows, frame_id offset=19680
+2026-11-10 14:30:41,430 - STRAP - INFO - [NGSIMLoader] Loading cached data from /home/st_students/MTP/data/raw/ngsim/ngsim_i-80.csv
+2026-11-10 14:30:47,759 - STRAP - INFO - [NGSIMLoader] Dropping 4 duplicate rows (0 duplicate groups differ in other columns)
+2026-11-10 14:30:48,629 - STRAP - INFO - [NGSIMLoader] 'i-80' period 1: 1,262,676 rows, frame_id offset=29708
+2026-11-10 14:30:48,655 - STRAP - INFO - [NGSIMLoader] 'i-80' period 2: 1,549,916 rows, frame_id offset=39801
+2026-11-10 14:30:48,677 - STRAP - INFO - [NGSIMLoader] 'i-80' period 3: 1,753,791 rows, frame_id offset=49668
+2026-11-10 14:30:48,907 - STRAP - INFO - [NGSIMLoader] Combined 2 locations: 8,665,316 total rows
+2026-11-10 14:30:49,210 - STRAP - INFO - [NGSIMLoader] 190 vehicles with >=80 frames
+2026-11-10 14:30:56,916 - STRAP - INFO - [NGSIMLoader] Built 15785 scenes
+collision: 1102724 vs 1102706, t*=8124, min 1.67 m, placement 0.909, 91 windows, 17 rejected
+device: cuda
+INATran: 173,381 parameters
+  inatran / cv: 1365 rows
+  inatran / pred: 724 rows
+device: cuda
+CognitiveModel: 227,979 parameters
+  cognitive / cv: 1365 rows
+  cognitive / pred: 724 rows
+device: cuda
+DACRAMTP: 254,150 parameters
+  dacr_amtp / cv: 1365 rows
+  dacr_amtp / pred: 724 rows
+device: cuda
+MIAT: 194,986 parameters
+  miat / cv: 1365 rows
+  miat / pred: 724 rows
+device: cuda
+MHALSTM: 146,825 parameters
+  mha_lstm / cv: 1365 rows
+  mha_lstm / pred: 724 rows
+device: cuda
+STDAN: 217,483 parameters
+  stdan / cv: 1365 rows
+  stdan / pred: 724 rows
+device: cuda
+XTrack: 166,405 parameters
+  x_track / cv: 1365 rows
+  x_track / pred: 724 rows
+device: cuda
+TrajectoryMamba: 121,207 parameters
+  traj_mamba / cv: 1365 rows
+  traj_mamba / pred: 724 rows
+device: cuda
+STGATEDGRU: 713,733 parameters
+  stgat_edgru / cv: 1365 rows
+  stgat_edgru / pred: 724 rows
+device: cuda
+INATran: 173,381 parameters
+  inatran_tuned / cv: 1365 rows
+  inatran_tuned / pred: 724 rows
+device: cuda
+CognitiveModel: 227,979 parameters
+  cognitive_tuned / cv: 1365 rows
+  cognitive_tuned / pred: 724 rows
+device: cuda
+DACRAMTP: 254,150 parameters
+  dacr_amtp_tuned / cv: 1365 rows
+  dacr_amtp_tuned / pred: 724 rows
+device: cuda
+MIAT: 194,986 parameters
+  miat_tuned / cv: 1365 rows
+  miat_tuned / pred: 724 rows
+device: cuda
+MHALSTM: 146,825 parameters
+  mha_lstm_tuned / cv: 1365 rows
+  mha_lstm_tuned / pred: 724 rows
+device: cuda
+STDAN: 217,483 parameters
+  stdan_tuned / cv: 1365 rows
+  stdan_tuned / pred: 724 rows
+device: cuda
+XTrack: 166,405 parameters
+  x_track_tuned / cv: 1365 rows
+  x_track_tuned / pred: 724 rows
+device: cuda
+STGATEDGRU: 713,733 parameters
+  stgat_edgru_tuned / cv: 1365 rows
+  stgat_edgru_tuned / pred: 724 rows
+2026-11-10 14:31:17,194 - STRAP - INFO - [NGSIMLoader] 190 vehicles with >=80 frames
+2026-11-10 14:31:24,852 - STRAP - INFO - [NGSIMLoader] Built 15509 scenes
+missed: 1102724 vs 1102714, t*=8084, min 1.81 m, placement 0.695, 91 windows, 13 rejected
+device: cuda
+INATran: 173,381 parameters
+  inatran / cv: 1365 rows
+/home/st_students/.local/lib/python3.10/site-packages/torch/nn/modules/transformer.py:502: UserWarning: The PyTorch API of nested tensors is in prototype stage and will change in the near future. (Triggered internally at ../aten/src/ATen/NestedTensorImpl.cpp:178.)
+  output = torch._nested_tensor_from_mask(
+  inatran / pred: 665 rows
+device: cuda
+CognitiveModel: 227,979 parameters
+  cognitive / cv: 1365 rows
+  cognitive / pred: 665 rows
+device: cuda
+DACRAMTP: 254,150 parameters
+  dacr_amtp / cv: 1365 rows
+  dacr_amtp / pred: 665 rows
+device: cuda
+MIAT: 194,986 parameters
+  miat / cv: 1365 rows
+  miat / pred: 665 rows
+device: cuda
+MHALSTM: 146,825 parameters
+  mha_lstm / cv: 1365 rows
+  mha_lstm / pred: 665 rows
+device: cuda
+STDAN: 217,483 parameters
+  stdan / cv: 1365 rows
+  stdan / pred: 665 rows
+device: cuda
+XTrack: 166,405 parameters
+  x_track / cv: 1365 rows
+  x_track / pred: 665 rows
+device: cuda
+TrajectoryMamba: 121,207 parameters
+  traj_mamba / cv: 1365 rows
+  traj_mamba / pred: 665 rows
+device: cuda
+STGATEDGRU: 713,733 parameters
+  stgat_edgru / cv: 1365 rows
+  stgat_edgru / pred: 665 rows
+device: cuda
+INATran: 173,381 parameters
+  inatran_tuned / cv: 1365 rows
+  inatran_tuned / pred: 665 rows
+device: cuda
+CognitiveModel: 227,979 parameters
+  cognitive_tuned / cv: 1365 rows
+  cognitive_tuned / pred: 665 rows
+device: cuda
+DACRAMTP: 254,150 parameters
+  dacr_amtp_tuned / cv: 1365 rows
+  dacr_amtp_tuned / pred: 665 rows
+device: cuda
+MIAT: 194,986 parameters
+  miat_tuned / cv: 1365 rows
+  miat_tuned / pred: 665 rows
+device: cuda
+MHALSTM: 146,825 parameters
+  mha_lstm_tuned / cv: 1365 rows
+  mha_lstm_tuned / pred: 665 rows
+device: cuda
+STDAN: 217,483 parameters
+  stdan_tuned / cv: 1365 rows
+  stdan_tuned / pred: 665 rows
+device: cuda
+XTrack: 166,405 parameters
+  x_track_tuned / cv: 1365 rows
+  x_track_tuned / pred: 665 rows
+device: cuda
+STGATEDGRU: 713,733 parameters
+  stgat_edgru_tuned / cv: 1365 rows
+  stgat_edgru_tuned / pred: 665 rows
+2026-11-10 14:31:43,211 - STRAP - INFO - [NGSIMLoader] 191 vehicles with >=80 frames
+2026-11-10 14:31:50,833 - STRAP - INFO - [NGSIMLoader] Built 15718 scenes
+near_miss: 1102724 vs 1102704, t*=8111, min 2.10 m, placement 0.729, 91 windows, 0 rejected
+device: cuda
+INATran: 173,381 parameters
+  inatran / cv: 1365 rows
+  inatran / pred: 748 rows
+device: cuda
+CognitiveModel: 227,979 parameters
+  cognitive / cv: 1365 rows
+  cognitive / pred: 748 rows
+device: cuda
+DACRAMTP: 254,150 parameters
+  dacr_amtp / cv: 1365 rows
+  dacr_amtp / pred: 748 rows
+device: cuda
+MIAT: 194,986 parameters
+  miat / cv: 1365 rows
+  miat / pred: 748 rows
+device: cuda
+MHALSTM: 146,825 parameters
+  mha_lstm / cv: 1365 rows
+  mha_lstm / pred: 748 rows
+device: cuda
+STDAN: 217,483 parameters
+  stdan / cv: 1365 rows
+  stdan / pred: 748 rows
+device: cuda
+XTrack: 166,405 parameters
+  x_track / cv: 1365 rows
+  x_track / pred: 748 rows
+device: cuda
+TrajectoryMamba: 121,207 parameters
+  traj_mamba / cv: 1365 rows
+  traj_mamba / pred: 748 rows
+device: cuda
+STGATEDGRU: 713,733 parameters
+  stgat_edgru / cv: 1365 rows
+  stgat_edgru / pred: 748 rows
+device: cuda
+INATran: 173,381 parameters
+  inatran_tuned / cv: 1365 rows
+  inatran_tuned / pred: 748 rows
+device: cuda
+CognitiveModel: 227,979 parameters
+  cognitive_tuned / cv: 1365 rows
+  cognitive_tuned / pred: 748 rows
+device: cuda
+DACRAMTP: 254,150 parameters
+  dacr_amtp_tuned / cv: 1365 rows
+  dacr_amtp_tuned / pred: 748 rows
+device: cuda
+MIAT: 194,986 parameters
+  miat_tuned / cv: 1365 rows
+  miat_tuned / pred: 748 rows
+device: cuda
+MHALSTM: 146,825 parameters
+  mha_lstm_tuned / cv: 1365 rows
+  mha_lstm_tuned / pred: 748 rows
+device: cuda
+STDAN: 217,483 parameters
+  stdan_tuned / cv: 1365 rows
+  stdan_tuned / pred: 748 rows
+device: cuda
+XTrack: 166,405 parameters
+  x_track_tuned / cv: 1365 rows
+  x_track_tuned / pred: 748 rows
+device: cuda
+STGATEDGRU: 713,733 parameters
+  stgat_edgru_tuned / cv: 1365 rows
+  stgat_edgru_tuned / pred: 748 rows
